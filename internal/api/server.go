@@ -56,6 +56,8 @@ type auditJobRecord struct {
 	SummaryPath   *string        `json:"summary_path"`
 	Metrics       any            `json:"metrics"`
 	Error         *string        `json:"error"`
+	OutputCapture *string        `json:"output_capture,omitempty"`
+	OutputTail    []string       `json:"output_tail,omitempty"`
 	StdoutTail    []string       `json:"stdout_tail"`
 	StderrTail    []string       `json:"stderr_tail"`
 }
@@ -91,6 +93,7 @@ func (err configError) Error() string {
 type commandExecutionError struct {
 	message    string
 	command    []string
+	outputTail []string
 	stdoutTail []string
 	stderrTail []string
 }
@@ -250,6 +253,8 @@ func (s *Server) handleCreateJob(writer http.ResponseWriter, request *http.Reque
 		SummaryPath:   nil,
 		Metrics:       nil,
 		Error:         nil,
+		OutputCapture: nil,
+		OutputTail:    nil,
 		StdoutTail:    nil,
 		StderrTail:    nil,
 	}
@@ -454,7 +459,9 @@ func summaryEnvelope(summaryPath string, payload map[string]any) map[string]any 
 	}
 	track, _ := payload["track"].(string)
 	if track == "" {
-		track = inferTrackFromMethod(payload)
+		if definition, ok := contractForSummaryPayload(payload); ok {
+			track = definition.Track
+		}
 	}
 	return map[string]any{
 		"status":         payload["status"],
@@ -658,6 +665,8 @@ func (s *Server) runJob(record auditJobRecord) {
 	record.SummaryPath = stringPtr(summaryPath)
 	record.Metrics = headlineMetrics(payload)
 	record.Error = nil
+	record.OutputCapture = nil
+	record.OutputTail = nil
 	record.StdoutTail = nil
 	record.StderrTail = nil
 	_ = s.writeJob(record)
@@ -672,6 +681,10 @@ func (s *Server) failJob(record auditJobRecord, err error) {
 	if errors.As(err, &execErr) {
 		if len(execErr.command) > 0 {
 			record.Command = execErr.command
+		}
+		if len(execErr.outputTail) > 0 {
+			record.OutputCapture = stringPtr("combined")
+			record.OutputTail = execErr.outputTail
 		}
 		if len(execErr.stdoutTail) > 0 {
 			record.StdoutTail = execErr.stdoutTail
@@ -716,7 +729,7 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 		return commandExecutionError{
 			message:    commandFailureMessage(err, output),
 			command:    command,
-			stderrTail: outputTailLines(output),
+			outputTail: outputTailLines(output),
 		}
 	}
 	return nil
@@ -876,18 +889,6 @@ func headlineMetrics(payload map[string]any) map[string]any {
 	return result
 }
 
-func inferTrackFromMethod(payload map[string]any) string {
-	method, _ := payload["method"].(string)
-	switch method {
-	case "recon", "variation", "clid":
-		return "black-box"
-	case "pia", "secmi":
-		return "gray-box"
-	default:
-		return ""
-	}
-}
-
 func normalizeCreatePayload(payload auditJobCreate) auditJobCreate {
 	inputs := cloneMap(payload.JobInputs)
 	if payload.ArtifactDir != "" {
@@ -958,4 +959,38 @@ func outputTailLines(output []byte) []string {
 		return filtered
 	}
 	return filtered[len(filtered)-10:]
+}
+
+func contractForSummaryPayload(payload map[string]any) (contractDefinition, bool) {
+	method, _ := payload["method"].(string)
+	if method == "" {
+		return contractDefinition{}, false
+	}
+
+	runtime, ok := payload["runtime"].(map[string]any)
+	if ok {
+		backend, _ := runtime["backend"].(string)
+		scheduler, _ := runtime["scheduler"].(string)
+		for _, definition := range contractRegistry {
+			if definition.AttackFamily != method || definition.Backend != backend {
+				continue
+			}
+			if definition.Scheduler != nil {
+				if scheduler == *definition.Scheduler {
+					return definition, true
+				}
+				continue
+			}
+			if scheduler == "" {
+				return definition, true
+			}
+		}
+	}
+
+	for _, definition := range contractRegistry {
+		if definition.AttackFamily == method {
+			return definition, true
+		}
+	}
+	return contractDefinition{}, false
 }
