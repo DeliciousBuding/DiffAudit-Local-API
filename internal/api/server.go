@@ -291,20 +291,7 @@ func (s *Server) catalogEntries() []catalogEntry {
 	definitions := catalogContractDefinitions()
 	entries := make([]catalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
-		entry := catalogEntry{
-			ContractKey:     definition.ContractKey,
-			Track:           definition.Track,
-			AttackFamily:    definition.AttackFamily,
-			TargetKey:       definition.TargetKey,
-			Availability:    definition.Availability,
-			EvidenceLevel:   definition.DefaultEvidenceLevel,
-			Label:           definition.Label,
-			Paper:           definition.Paper,
-			Backend:         definition.Backend,
-			Scheduler:       definition.Scheduler,
-			BestSummaryPath: nil,
-			BestWorkspace:   nil,
-		}
+		entry := projectCatalogEntry(definition)
 
 		if evidence, ok := s.catalogEvidenceForContract(definition); ok {
 			entry.EvidenceLevel = "best-summary"
@@ -462,11 +449,12 @@ func summaryEnvelope(summaryPath string, payload map[string]any) map[string]any 
 	}
 	track, _ := payload["track"].(string)
 	if definition, ok := contractForSummaryPayload(payload); ok {
-		contractKey = definition.ContractKey
-		attackFamily = definition.AttackFamily
-		targetKey = definition.TargetKey
+		projection := projectContract(definition)
+		contractKey = projection.ContractKey
+		attackFamily = projection.AttackFamily
+		targetKey = projection.TargetKey
 		if track == "" {
-			track = definition.Track
+			track = projection.Track
 		}
 	}
 	return map[string]any{

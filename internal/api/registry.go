@@ -50,6 +50,21 @@ type contractDefinition struct {
 	StatusMethodKey      string
 }
 
+type contractProjection struct {
+	ContractKey     string
+	Track           string
+	AttackFamily    string
+	TargetKey       string
+	Availability    string
+	EvidenceLevel   string
+	Label           string
+	Paper           string
+	Backend         string
+	Scheduler       *string
+	ContractStatus  string
+	CatalogVisible  bool
+}
+
 var contractRegistry = []contractDefinition{
 	{
 		ContractKey:          "black-box/recon/sd15-ddim",
@@ -234,14 +249,7 @@ func liveModelOptions() []modelOption {
 		if definition.Model == nil {
 			continue
 		}
-		model := *definition.Model
-		model.ContractKey = definition.ContractKey
-		model.Track = definition.Track
-		model.AttackFamily = definition.AttackFamily
-		model.TargetKey = definition.TargetKey
-		model.ContractStatus = definition.ContractStatus
-		model.CatalogVisible = definition.CatalogVisible
-		options = append(options, model)
+		options = append(options, projectModelOption(definition))
 	}
 	return options
 }
@@ -277,6 +285,53 @@ func contractDefinitionByKey(contractKey string) (contractDefinition, bool) {
 		}
 	}
 	return contractDefinition{}, false
+}
+
+func projectContract(definition contractDefinition) contractProjection {
+	return contractProjection{
+		ContractKey:    definition.ContractKey,
+		Track:          definition.Track,
+		AttackFamily:   definition.AttackFamily,
+		TargetKey:      definition.TargetKey,
+		Availability:   definition.Availability,
+		EvidenceLevel:  definition.DefaultEvidenceLevel,
+		Label:          definition.Label,
+		Paper:          definition.Paper,
+		Backend:        definition.Backend,
+		Scheduler:      definition.Scheduler,
+		ContractStatus: definition.ContractStatus,
+		CatalogVisible: definition.CatalogVisible,
+	}
+}
+
+func projectModelOption(definition contractDefinition) modelOption {
+	model := *definition.Model
+	projection := projectContract(definition)
+	model.ContractKey = projection.ContractKey
+	model.Track = projection.Track
+	model.AttackFamily = projection.AttackFamily
+	model.TargetKey = projection.TargetKey
+	model.ContractStatus = projection.ContractStatus
+	model.CatalogVisible = projection.CatalogVisible
+	return model
+}
+
+func projectCatalogEntry(definition contractDefinition) catalogEntry {
+	projection := projectContract(definition)
+	return catalogEntry{
+		ContractKey:     projection.ContractKey,
+		Track:           projection.Track,
+		AttackFamily:    projection.AttackFamily,
+		TargetKey:       projection.TargetKey,
+		Availability:    projection.Availability,
+		EvidenceLevel:   projection.EvidenceLevel,
+		Label:           projection.Label,
+		Paper:           projection.Paper,
+		Backend:         projection.Backend,
+		Scheduler:       projection.Scheduler,
+		BestSummaryPath: nil,
+		BestWorkspace:   nil,
+	}
 }
 
 func contractForSummaryPayload(payload map[string]any) (contractDefinition, bool) {

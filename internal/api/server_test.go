@@ -314,6 +314,12 @@ func TestModelsEndpoint(t *testing.T) {
 	if first["contract_status"] == nil {
 		t.Fatalf("expected models endpoint to expose contract_status, got %v", first)
 	}
+	if first["track"] == nil {
+		t.Fatalf("expected models endpoint to expose track, got %v", first)
+	}
+	if first["target_key"] == nil {
+		t.Fatalf("expected models endpoint to expose target_key, got %v", first)
+	}
 }
 
 func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
@@ -396,6 +402,31 @@ func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
 	}
 	if _, ok := entry["access_level"]; ok {
 		t.Fatalf("expected access_level to be removed from catalog entry, got %v", entry["access_level"])
+	}
+	if entry["label"] != "Stable Diffusion 1.5 + DDIM" {
+		t.Fatalf("expected label from shared contract projection, got %v", entry["label"])
+	}
+}
+
+func TestContractProjectionKeepsModelsAndCatalogAligned(t *testing.T) {
+	models := liveModelOptions()
+	if len(models) == 0 {
+		t.Fatal("expected at least one live model option")
+	}
+	model := models[0]
+	definition, ok := contractDefinitionByKey(model.ContractKey)
+	if !ok {
+		t.Fatalf("missing contract definition for %s", model.ContractKey)
+	}
+	catalogEntry := projectCatalogEntry(definition)
+	if model.Track != catalogEntry.Track {
+		t.Fatalf("expected track alignment, got model=%s catalog=%s", model.Track, catalogEntry.Track)
+	}
+	if model.AttackFamily != catalogEntry.AttackFamily {
+		t.Fatalf("expected attack family alignment, got model=%s catalog=%s", model.AttackFamily, catalogEntry.AttackFamily)
+	}
+	if model.TargetKey != catalogEntry.TargetKey {
+		t.Fatalf("expected target key alignment, got model=%s catalog=%s", model.TargetKey, catalogEntry.TargetKey)
 	}
 }
 
