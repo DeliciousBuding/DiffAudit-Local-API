@@ -304,6 +304,16 @@ func TestModelsEndpoint(t *testing.T) {
 	if len(payload) < 3 {
 		t.Fatalf("expected at least 3 models, got %d", len(payload))
 	}
+	first := payload[0]
+	if first["contract_key"] == nil {
+		t.Fatalf("expected models endpoint to expose contract_key, got %v", first)
+	}
+	if first["attack_family"] == nil {
+		t.Fatalf("expected models endpoint to expose attack_family, got %v", first)
+	}
+	if first["contract_status"] == nil {
+		t.Fatalf("expected models endpoint to expose contract_status, got %v", first)
+	}
 }
 
 func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
@@ -619,6 +629,15 @@ func TestWorkspaceSummaryEndpoint(t *testing.T) {
 	if payload["track"] != "black-box" {
 		t.Fatalf("expected inferred black-box track, got %v", payload["track"])
 	}
+	if payload["contract_key"] != "black-box/recon/sd15-ddim" {
+		t.Fatalf("expected contract_key black-box/recon/sd15-ddim, got %v", payload["contract_key"])
+	}
+	if payload["attack_family"] != "recon" {
+		t.Fatalf("expected attack_family recon, got %v", payload["attack_family"])
+	}
+	if payload["target_key"] != "sd15-ddim" {
+		t.Fatalf("expected target_key sd15-ddim, got %v", payload["target_key"])
+	}
 	metrics, ok := payload["metrics"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected metrics object, got %T", payload["metrics"])
@@ -670,6 +689,9 @@ func TestWorkspaceSummaryInfersTrackFromRegistryContract(t *testing.T) {
 	payload := decodeJSONResponse(t, recorder)
 	if payload["track"] != "gray-box" {
 		t.Fatalf("expected inferred gray-box track, got %v", payload["track"])
+	}
+	if payload["contract_key"] != "gray-box/pia/cifar10-ddpm" {
+		t.Fatalf("expected gray-box contract_key, got %v", payload["contract_key"])
 	}
 }
 

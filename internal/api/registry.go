@@ -1,14 +1,20 @@
 package api
 
 type modelOption struct {
-	Key          string  `json:"key"`
-	Label        string  `json:"label"`
-	AccessLevel  string  `json:"access_level"`
-	Availability string  `json:"availability"`
-	Paper        string  `json:"paper"`
-	Method       string  `json:"method"`
-	Backend      string  `json:"backend"`
-	Scheduler    *string `json:"scheduler"`
+	Key            string  `json:"key"`
+	Label          string  `json:"label"`
+	AccessLevel    string  `json:"access_level"`
+	Availability   string  `json:"availability"`
+	Paper          string  `json:"paper"`
+	Method         string  `json:"method"`
+	Backend        string  `json:"backend"`
+	Scheduler      *string `json:"scheduler"`
+	ContractKey    string  `json:"contract_key,omitempty"`
+	Track          string  `json:"track,omitempty"`
+	AttackFamily   string  `json:"attack_family,omitempty"`
+	TargetKey      string  `json:"target_key,omitempty"`
+	ContractStatus string  `json:"contract_status,omitempty"`
+	CatalogVisible bool    `json:"catalog_visible,omitempty"`
 }
 
 type jobDefinition struct {
@@ -228,7 +234,14 @@ func liveModelOptions() []modelOption {
 		if definition.Model == nil {
 			continue
 		}
-		options = append(options, *definition.Model)
+		model := *definition.Model
+		model.ContractKey = definition.ContractKey
+		model.Track = definition.Track
+		model.AttackFamily = definition.AttackFamily
+		model.TargetKey = definition.TargetKey
+		model.ContractStatus = definition.ContractStatus
+		model.CatalogVisible = definition.CatalogVisible
+		options = append(options, model)
 	}
 	return options
 }
@@ -260,6 +273,40 @@ func liveJobDefinition(jobType string) (jobDefinition, contractDefinition, bool)
 func contractDefinitionByKey(contractKey string) (contractDefinition, bool) {
 	for _, definition := range contractRegistry {
 		if definition.ContractKey == contractKey {
+			return definition, true
+		}
+	}
+	return contractDefinition{}, false
+}
+
+func contractForSummaryPayload(payload map[string]any) (contractDefinition, bool) {
+	method, _ := payload["method"].(string)
+	if method == "" {
+		return contractDefinition{}, false
+	}
+
+	runtime, ok := payload["runtime"].(map[string]any)
+	if ok {
+		backend, _ := runtime["backend"].(string)
+		scheduler, _ := runtime["scheduler"].(string)
+		for _, definition := range contractRegistry {
+			if definition.AttackFamily != method || definition.Backend != backend {
+				continue
+			}
+			if definition.Scheduler != nil {
+				if scheduler == *definition.Scheduler {
+					return definition, true
+				}
+				continue
+			}
+			if scheduler == "" {
+				return definition, true
+			}
+		}
+	}
+
+	for _, definition := range contractRegistry {
+		if definition.AttackFamily == method {
 			return definition, true
 		}
 	}

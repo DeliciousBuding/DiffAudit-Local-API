@@ -453,19 +453,28 @@ func extractSampleCount(payload map[string]any) float64 {
 func summaryEnvelope(summaryPath string, payload map[string]any) map[string]any {
 	backend := any(nil)
 	scheduler := any(nil)
+	contractKey := any(nil)
+	attackFamily := any(nil)
+	targetKey := any(nil)
 	if runtime, ok := payload["runtime"].(map[string]any); ok {
 		backend = runtime["backend"]
 		scheduler = runtime["scheduler"]
 	}
 	track, _ := payload["track"].(string)
-	if track == "" {
-		if definition, ok := contractForSummaryPayload(payload); ok {
+	if definition, ok := contractForSummaryPayload(payload); ok {
+		contractKey = definition.ContractKey
+		attackFamily = definition.AttackFamily
+		targetKey = definition.TargetKey
+		if track == "" {
 			track = definition.Track
 		}
 	}
 	return map[string]any{
 		"status":         payload["status"],
 		"track":          track,
+		"contract_key":   contractKey,
+		"attack_family":  attackFamily,
+		"target_key":     targetKey,
 		"paper":          payload["paper"],
 		"method":         payload["method"],
 		"mode":           payload["mode"],
@@ -959,38 +968,4 @@ func outputTailLines(output []byte) []string {
 		return filtered
 	}
 	return filtered[len(filtered)-10:]
-}
-
-func contractForSummaryPayload(payload map[string]any) (contractDefinition, bool) {
-	method, _ := payload["method"].(string)
-	if method == "" {
-		return contractDefinition{}, false
-	}
-
-	runtime, ok := payload["runtime"].(map[string]any)
-	if ok {
-		backend, _ := runtime["backend"].(string)
-		scheduler, _ := runtime["scheduler"].(string)
-		for _, definition := range contractRegistry {
-			if definition.AttackFamily != method || definition.Backend != backend {
-				continue
-			}
-			if definition.Scheduler != nil {
-				if scheduler == *definition.Scheduler {
-					return definition, true
-				}
-				continue
-			}
-			if scheduler == "" {
-				return definition, true
-			}
-		}
-	}
-
-	for _, definition := range contractRegistry {
-		if definition.AttackFamily == method {
-			return definition, true
-		}
-	}
-	return contractDefinition{}, false
 }
