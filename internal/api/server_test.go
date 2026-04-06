@@ -628,6 +628,51 @@ func TestWorkspaceSummaryEndpoint(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSummaryInfersTrackFromRegistryContract(t *testing.T) {
+	root := t.TempDir()
+	experimentsRoot := filepath.Join(root, "experiments")
+	workspace := filepath.Join(experimentsRoot, "pia-runtime-probe-001")
+
+	writeJSONFile(t, filepath.Join(workspace, "summary.json"), map[string]any{
+		"status":    "ready",
+		"paper":     "PIA",
+		"method":    "pia",
+		"mode":      "runtime-probe",
+		"workspace": workspace,
+		"runtime": map[string]any{
+			"backend": "ddpm",
+		},
+		"metrics": map[string]any{
+			"probe_auc": 0.73,
+		},
+		"artifact_paths": map[string]any{
+			"summary": filepath.Join(workspace, "summary.json"),
+		},
+	})
+
+	server := NewServer(Config{
+		ExperimentsRoot: experimentsRoot,
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/experiments/pia-runtime-probe-001/summary",
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	payload := decodeJSONResponse(t, recorder)
+	if payload["track"] != "gray-box" {
+		t.Fatalf("expected inferred gray-box track, got %v", payload["track"])
+	}
+}
+
 func TestCreateAndGetJobEndpoints(t *testing.T) {
 	root := t.TempDir()
 	server := NewServer(Config{
@@ -1045,12 +1090,18 @@ func TestBackgroundJobFailureCapturesCommandAndOutputTail(t *testing.T) {
 	if !ok || len(command) == 0 {
 		t.Fatalf("expected command to be captured, got %v", record["command"])
 	}
-	stderrTail, ok := record["stderr_tail"].([]any)
-	if !ok || len(stderrTail) == 0 {
-		t.Fatalf("expected stderr_tail to be captured, got %v", record["stderr_tail"])
+	if record["output_capture"] != "combined" {
+		t.Fatalf("expected combined output_capture, got %v", record["output_capture"])
 	}
-	if stderrTail[len(stderrTail)-1] != "line-3" {
-		t.Fatalf("expected last stderr tail line line-3, got %v", stderrTail)
+	outputTail, ok := record["output_tail"].([]any)
+	if !ok || len(outputTail) == 0 {
+		t.Fatalf("expected output_tail to be captured, got %v", record["output_tail"])
+	}
+	if outputTail[len(outputTail)-1] != "line-3" {
+		t.Fatalf("expected last output tail line line-3, got %v", outputTail)
+	}
+	if record["stderr_tail"] != nil {
+		t.Fatalf("expected stderr_tail to stay nil for combined capture, got %v", record["stderr_tail"])
 	}
 }
 

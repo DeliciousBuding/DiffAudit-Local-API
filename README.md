@@ -141,9 +141,10 @@ as:
 Job observability note:
 
 - the default execution path still uses Go `CombinedOutput()`
-- when that path fails, `command` is recorded and the merged command-output tail
-  is stored in `stderr_tail` as a failure log tail
-- this is useful for debugging, but it is not a strict stdout/stderr split
+- when that path fails, `command` is recorded, `output_capture` is set to
+  `combined`, and the merged command-output tail is stored in `output_tail`
+- in that default combined mode, `stdout_tail` and `stderr_tail` are not
+  treated as authoritative split streams
 - a future runner can provide stronger stream semantics if needed
 
 ## Environment Variables
