@@ -313,8 +313,11 @@ func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
 	}
 
 	entry := findCatalogEntry(t, payload, "recon", "sd15-ddim")
-	if entry["access_level"] != "black-box" {
-		t.Fatalf("expected black-box access_level, got %v", entry["access_level"])
+	if entry["contract_key"] != "black-box/recon/sd15-ddim" {
+		t.Fatalf("expected recon contract_key, got %v", entry["contract_key"])
+	}
+	if entry["track"] != "black-box" {
+		t.Fatalf("expected black-box track, got %v", entry["track"])
 	}
 	if entry["availability"] != "ready" {
 		t.Fatalf("expected ready availability, got %v", entry["availability"])
@@ -324,6 +327,9 @@ func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
 	}
 	if entry["best_summary_path"] != nil {
 		t.Fatalf("expected nil best_summary_path, got %v", entry["best_summary_path"])
+	}
+	if _, ok := entry["access_level"]; ok {
+		t.Fatalf("expected access_level to be removed from catalog entry, got %v", entry["access_level"])
 	}
 }
 
@@ -554,6 +560,9 @@ func TestWorkspaceSummaryEndpoint(t *testing.T) {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
 	payload := decodeJSONResponse(t, recorder)
+	if payload["track"] != "black-box" {
+		t.Fatalf("expected inferred black-box track, got %v", payload["track"])
+	}
 	metrics, ok := payload["metrics"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected metrics object, got %T", payload["metrics"])
@@ -572,6 +581,7 @@ func TestCreateAndGetJobEndpoints(t *testing.T) {
 
 	requestBody := map[string]any{
 		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
 		"workspace_name": "api-job-001",
 		"artifact_dir":   "D:/artifacts/recon-scores",
 		"repo_root":      "D:/Code/DiffAudit/Project/external/Reconstruction-based-Attack",
@@ -604,8 +614,88 @@ func TestCreateAndGetJobEndpoints(t *testing.T) {
 		t.Fatalf("expected 200, got %d", jobRecorder.Code)
 	}
 	jobPayload := decodeJSONResponse(t, jobRecorder)
+	if jobPayload["contract_key"] != "black-box/recon/sd15-ddim" {
+		t.Fatalf("expected contract_key on job record, got %v", jobPayload["contract_key"])
+	}
 	if jobPayload["workspace_name"] != "api-job-001" {
 		t.Fatalf("expected workspace api-job-001, got %v", jobPayload["workspace_name"])
+	}
+}
+
+func TestCreateJobRequiresContractKey(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	data, err := json.Marshal(map[string]any{
+		"job_type":       "recon_artifact_mainline",
+		"workspace_name": "api-job-001",
+		"artifact_dir":   "D:/artifacts/recon-scores",
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+	payload := decodeJSONResponse(t, recorder)
+	if !strings.Contains(payload["detail"].(string), "contract_key") {
+		t.Fatalf("expected contract_key validation error, got %v", payload["detail"])
+	}
+}
+
+func TestCreateJobAcceptsGenericJobInputs(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
+		"workspace_name": "api-job-inputs-001",
+		"job_inputs": map[string]any{
+			"artifact_dir": "D:/artifacts/recon-scores",
+			"method":       "quantile",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(createRecorder, createRequest)
+
+	if createRecorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", createRecorder.Code)
+	}
+
+	created := decodeJSONResponse(t, createRecorder)
+	payload, ok := created["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %T", created["payload"])
+	}
+	jobInputs, ok := payload["job_inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected job_inputs object, got %T", payload["job_inputs"])
+	}
+	if jobInputs["artifact_dir"] != "D:/artifacts/recon-scores" {
+		t.Fatalf("expected artifact_dir in job_inputs, got %v", jobInputs["artifact_dir"])
+	}
+	if jobInputs["method"] != "quantile" {
+		t.Fatalf("expected method in job_inputs, got %v", jobInputs["method"])
 	}
 }
 
@@ -620,6 +710,7 @@ func TestListJobsReturnsLatestFirst(t *testing.T) {
 		t.Helper()
 		data, err := json.Marshal(map[string]any{
 			"job_type":       "recon_artifact_mainline",
+			"contract_key":   "black-box/recon/sd15-ddim",
 			"workspace_name": workspaceName,
 			"artifact_dir":   artifactDir,
 		})
@@ -669,6 +760,7 @@ func TestRejectsDuplicateActiveWorkspace(t *testing.T) {
 		t.Helper()
 		data, err := json.Marshal(map[string]any{
 			"job_type":       "recon_artifact_mainline",
+			"contract_key":   "black-box/recon/sd15-ddim",
 			"workspace_name": "shared-workspace",
 			"artifact_dir":   artifactDir,
 		})
@@ -725,6 +817,7 @@ func TestBackgroundJobExecutionCompletesAndFillsSummary(t *testing.T) {
 
 	data, err := json.Marshal(map[string]any{
 		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
 		"workspace_name": "api-job-complete",
 		"artifact_dir":   "D:/artifacts/recon-scores",
 	})
@@ -754,6 +847,69 @@ func TestBackgroundJobExecutionCompletesAndFillsSummary(t *testing.T) {
 	}
 }
 
+func TestBackgroundJobExecutionPreservesNonReconMetrics(t *testing.T) {
+	root := t.TempDir()
+	experimentsRoot := filepath.Join(root, "experiments")
+	server := NewServer(Config{
+		ExperimentsRoot: experimentsRoot,
+		JobsRoot:        filepath.Join(root, "jobs"),
+		AutoStartJobs:   true,
+		Executor: func(payload auditJobCreate, workspacePath string) error {
+			writeJSONFile(t, filepath.Join(workspacePath, "summary.json"), map[string]any{
+				"status":    "ready",
+				"track":     "gray-box",
+				"paper":     "GrayBox_PIA_Example",
+				"method":    "pia",
+				"mode":      "runtime-probe",
+				"workspace": workspacePath,
+				"metrics": map[string]any{
+					"probe_auc":        0.73,
+					"attack_accuracy":  0.69,
+					"member_precision": 0.81,
+				},
+				"artifact_paths": map[string]any{
+					"summary": filepath.Join(workspacePath, "summary.json"),
+				},
+			})
+			return nil
+		},
+	})
+
+	data, err := json.Marshal(map[string]any{
+		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
+		"workspace_name": "api-job-gray-metrics",
+		"artifact_dir":   "D:/artifacts/recon-scores",
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", recorder.Code)
+	}
+
+	created := decodeJSONResponse(t, recorder)
+	jobID := created["job_id"].(string)
+
+	record := waitForJobStatus(t, server, jobID, "completed")
+	metrics, ok := record["metrics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected metrics object, got %T", record["metrics"])
+	}
+	if metrics["probe_auc"] != 0.73 {
+		t.Fatalf("expected probe_auc to be preserved, got %v", metrics["probe_auc"])
+	}
+	if metrics["attack_accuracy"] != 0.69 {
+		t.Fatalf("expected attack_accuracy to be preserved, got %v", metrics["attack_accuracy"])
+	}
+}
+
 func TestBackgroundJobExecutionFailurePersistsError(t *testing.T) {
 	root := t.TempDir()
 	server := NewServer(Config{
@@ -767,6 +923,7 @@ func TestBackgroundJobExecutionFailurePersistsError(t *testing.T) {
 
 	data, err := json.Marshal(map[string]any{
 		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
 		"workspace_name": "api-job-fail",
 		"artifact_dir":   "D:/artifacts/recon-scores",
 	})

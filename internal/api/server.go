@@ -34,16 +34,19 @@ type Server struct {
 }
 
 type auditJobCreate struct {
-	JobType       string `json:"job_type"`
-	WorkspaceName string `json:"workspace_name"`
-	RepoRoot      string `json:"repo_root,omitempty"`
-	Method        string `json:"method,omitempty"`
-	ArtifactDir   string `json:"artifact_dir,omitempty"`
+	JobType       string         `json:"job_type"`
+	ContractKey   string         `json:"contract_key"`
+	WorkspaceName string         `json:"workspace_name"`
+	RepoRoot      string         `json:"repo_root,omitempty"`
+	Method        string         `json:"method,omitempty"`
+	ArtifactDir   string         `json:"artifact_dir,omitempty"`
+	JobInputs     map[string]any `json:"job_inputs,omitempty"`
 }
 
 type auditJobRecord struct {
 	JobID         string         `json:"job_id"`
 	JobType       string         `json:"job_type"`
+	ContractKey   string         `json:"contract_key"`
 	Status        string         `json:"status"`
 	WorkspaceName string         `json:"workspace_name"`
 	CreatedAt     string         `json:"created_at"`
@@ -69,8 +72,8 @@ type modelOption struct {
 }
 
 type catalogEntry struct {
-	Key             string  `json:"key"`
-	AccessLevel     string  `json:"access_level"`
+	ContractKey     string  `json:"contract_key"`
+	Track           string  `json:"track"`
 	AttackFamily    string  `json:"attack_family"`
 	TargetKey       string  `json:"target_key"`
 	Availability    string  `json:"availability"`
@@ -94,6 +97,12 @@ type configError struct {
 
 func (err configError) Error() string {
 	return err.message
+}
+
+type jobDefinition struct {
+	ContractKey    string
+	RequiredInputs []string
+	RequestsGPU    bool
 }
 
 var models = []modelOption{
@@ -124,6 +133,19 @@ var models = []modelOption{
 		Paper:        "Scalable_Diffusion_Transformers_2022",
 		Method:       "sample",
 		Backend:      "dit",
+	},
+}
+
+var auditJobDefinitions = map[string]jobDefinition{
+	"recon_artifact_mainline": {
+		ContractKey:    "black-box/recon/sd15-ddim",
+		RequiredInputs: []string{"artifact_dir"},
+		RequestsGPU:    false,
+	},
+	"recon_runtime_mainline": {
+		ContractKey:    "black-box/recon/sd15-ddim",
+		RequiredInputs: nil,
+		RequestsGPU:    true,
 	},
 }
 
@@ -244,6 +266,7 @@ func (s *Server) handleCreateJob(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	payload = normalizeCreatePayload(payload)
 	if err := validateCreatePayload(payload); err != nil {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return
@@ -262,6 +285,7 @@ func (s *Server) handleCreateJob(writer http.ResponseWriter, request *http.Reque
 	record := auditJobRecord{
 		JobID:         "job_" + strings.ReplaceAll(now, ":", "") + "_" + payload.WorkspaceName,
 		JobType:       payload.JobType,
+		ContractKey:   payload.ContractKey,
 		Status:        "queued",
 		WorkspaceName: payload.WorkspaceName,
 		CreatedAt:     now,
@@ -312,8 +336,8 @@ func (s *Server) catalogEntries() []catalogEntry {
 		}
 
 		entry := catalogEntry{
-			Key:             model.AccessLevel + "/" + model.Method + "/" + model.Key,
-			AccessLevel:     model.AccessLevel,
+			ContractKey:     model.AccessLevel + "/" + model.Method + "/" + model.Key,
+			Track:           model.AccessLevel,
 			AttackFamily:    model.Method,
 			TargetKey:       model.Key,
 			Availability:    model.Availability,
@@ -478,8 +502,13 @@ func summaryEnvelope(summaryPath string, payload map[string]any) map[string]any 
 		backend = runtime["backend"]
 		scheduler = runtime["scheduler"]
 	}
+	track, _ := payload["track"].(string)
+	if track == "" {
+		track = inferTrackFromMethod(payload)
+	}
 	return map[string]any{
 		"status":         payload["status"],
+		"track":          track,
 		"paper":          payload["paper"],
 		"method":         payload["method"],
 		"mode":           payload["mode"],
@@ -509,14 +538,26 @@ func validateCreatePayload(payload auditJobCreate) error {
 	if payload.JobType == "" {
 		return errors.New("job_type is required")
 	}
+	if payload.ContractKey == "" {
+		return errors.New("contract_key is required")
+	}
 	if payload.WorkspaceName == "" {
 		return errors.New("workspace_name is required")
 	}
 	if strings.Contains(payload.WorkspaceName, "/") || strings.Contains(payload.WorkspaceName, "\\") {
 		return errors.New("workspace_name must be a single workspace directory name")
 	}
-	if payload.JobType == "recon_artifact_mainline" && payload.ArtifactDir == "" {
-		return errors.New("recon_artifact_mainline requires artifact_dir")
+	definition, ok := auditJobDefinitions[payload.JobType]
+	if !ok {
+		return errors.New("unsupported job_type")
+	}
+	if payload.ContractKey != definition.ContractKey {
+		return errors.New("contract_key does not match job_type")
+	}
+	for _, key := range definition.RequiredInputs {
+		if value := strings.TrimSpace(jobInputString(payload, key)); value == "" {
+			return errors.New(payload.JobType + " requires " + key)
+		}
 	}
 	return nil
 }
@@ -720,7 +761,11 @@ func defaultExecCommand(command []string, dir string) ([]byte, error) {
 }
 
 func shouldRequestGPU(payload auditJobCreate) bool {
-	return payload.JobType != "recon_artifact_mainline"
+	definition, ok := auditJobDefinitions[payload.JobType]
+	if !ok {
+		return true
+	}
+	return definition.RequestsGPU
 }
 
 func (s *Server) acquireGPU(agent string) (func(), error) {
@@ -788,7 +833,7 @@ func (s *Server) resolveRepoRoot(payload auditJobCreate) (string, error) {
 }
 
 func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, repoRoot string) []string {
-	method := payload.Method
+	method := jobInputString(payload, "method")
 	if method == "" {
 		method = "threshold"
 	}
@@ -799,7 +844,7 @@ func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, rep
 			"diffaudit",
 			"run-recon-artifact-mainline",
 			"--artifact-dir",
-			payload.ArtifactDir,
+			jobInputString(payload, "artifact_dir"),
 			"--workspace",
 			workspacePath,
 			"--repo-root",
@@ -831,9 +876,74 @@ func headlineMetrics(payload map[string]any) map[string]any {
 			"tpr_at_1pct_fpr": nil,
 		}
 	}
-	return map[string]any{
-		"auc":             metrics["auc"],
-		"asr":             metrics["asr"],
-		"tpr_at_1pct_fpr": metrics["tpr_at_1pct_fpr"],
+	result := cloneMap(metrics)
+	if _, ok := result["auc"]; !ok {
+		result["auc"] = nil
 	}
+	if _, ok := result["asr"]; !ok {
+		result["asr"] = nil
+	}
+	if _, ok := result["tpr_at_1pct_fpr"]; !ok {
+		result["tpr_at_1pct_fpr"] = nil
+	}
+	return result
+}
+
+func inferTrackFromMethod(payload map[string]any) string {
+	method, _ := payload["method"].(string)
+	switch method {
+	case "recon", "variation", "clid":
+		return "black-box"
+	case "pia", "secmi":
+		return "gray-box"
+	default:
+		return ""
+	}
+}
+
+func normalizeCreatePayload(payload auditJobCreate) auditJobCreate {
+	inputs := cloneMap(payload.JobInputs)
+	if payload.ArtifactDir != "" {
+		if _, ok := inputs["artifact_dir"]; !ok {
+			inputs["artifact_dir"] = payload.ArtifactDir
+		}
+	}
+	if payload.Method != "" {
+		if _, ok := inputs["method"]; !ok {
+			inputs["method"] = payload.Method
+		}
+	}
+	if len(inputs) == 0 {
+		payload.JobInputs = nil
+		return payload
+	}
+	payload.JobInputs = inputs
+	return payload
+}
+
+func jobInputString(payload auditJobCreate, key string) string {
+	if payload.JobInputs != nil {
+		if value, ok := payload.JobInputs[key].(string); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	switch key {
+	case "artifact_dir":
+		return strings.TrimSpace(payload.ArtifactDir)
+	case "method":
+		return strings.TrimSpace(payload.Method)
+	default:
+		return ""
+	}
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return map[string]any{}
+	}
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		cloned[key] = item
+	}
+	return cloned
 }

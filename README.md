@@ -87,6 +87,38 @@ Callers should configure their own base URL pointing at this service, for exampl
 
 Do not assume loopback or a fixed workspace path in client configs.
 
+## HTTP Contract
+
+Current discovery and control routes:
+
+- `GET /health`
+- `GET /api/v1/catalog`
+- `GET /api/v1/experiments/recon/best`
+- `GET /api/v1/experiments/{workspace}/summary`
+- `GET /api/v1/audit/jobs`
+- `POST /api/v1/audit/jobs`
+- `GET /api/v1/audit/jobs/{job_id}`
+
+`POST /api/v1/audit/jobs` now requires an explicit `contract_key`. The current
+publicly supported executable contract is the black-box recon mainline:
+
+```json
+{
+  "job_type": "recon_artifact_mainline",
+  "contract_key": "black-box/recon/sd15-ddim",
+  "workspace_name": "api-job-001",
+  "job_inputs": {
+    "artifact_dir": "D:/artifacts/recon-scores",
+    "method": "threshold"
+  }
+}
+```
+
+The service rejects job bodies that omit `contract_key` or pair a `job_type`
+with the wrong contract. Contract-specific fields should go under `job_inputs`.
+Current recon callers may still send legacy top-level `artifact_dir` and
+`method`, and the service normalizes them into `job_inputs` internally.
+
 ## Environment Variables
 
 - `DIFFAUDIT_LOCAL_API_HOST`
