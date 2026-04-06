@@ -37,6 +37,26 @@ func decodeJSONResponse(t *testing.T, recorder *httptest.ResponseRecorder) map[s
 	return payload
 }
 
+func decodeJSONArrayResponse(t *testing.T, recorder *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	var payload []map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	return payload
+}
+
+func findCatalogEntry(t *testing.T, payload []map[string]any, attackFamily string, targetKey string) map[string]any {
+	t.Helper()
+	for _, item := range payload {
+		if item["attack_family"] == attackFamily && item["target_key"] == targetKey {
+			return item
+		}
+	}
+	t.Fatalf("missing catalog entry attack_family=%s target_key=%s", attackFamily, targetKey)
+	return nil
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	root := t.TempDir()
 	server := NewServer(Config{
@@ -272,6 +292,105 @@ func TestModelsEndpoint(t *testing.T) {
 
 	if len(payload) < 3 {
 		t.Fatalf("expected at least 3 models, got %d", len(payload))
+	}
+}
+
+func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
+	server := NewServer(Config{})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/catalog", nil)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	payload := decodeJSONArrayResponse(t, recorder)
+	if len(payload) != 2 {
+		t.Fatalf("expected 2 recon catalog entries, got %d", len(payload))
+	}
+
+	entry := findCatalogEntry(t, payload, "recon", "sd15-ddim")
+	if entry["access_level"] != "black-box" {
+		t.Fatalf("expected black-box access_level, got %v", entry["access_level"])
+	}
+	if entry["availability"] != "ready" {
+		t.Fatalf("expected ready availability, got %v", entry["availability"])
+	}
+	if entry["evidence_level"] != "catalog" {
+		t.Fatalf("expected catalog evidence_level, got %v", entry["evidence_level"])
+	}
+	if entry["best_summary_path"] != nil {
+		t.Fatalf("expected nil best_summary_path, got %v", entry["best_summary_path"])
+	}
+}
+
+func TestCatalogEndpointHydratesBestReconEvidenceWhenAvailable(t *testing.T) {
+	root := t.TempDir()
+	experimentsRoot := filepath.Join(root, "experiments")
+	bestWorkspace := filepath.Join(experimentsRoot, "recon-runtime-mainline-ddim-public-50-step10")
+
+	writeJSONFile(t, filepath.Join(bestWorkspace, "summary.json"), map[string]any{
+		"status":    "ready",
+		"paper":     "BlackBox_Reconstruction_ArXiv2023",
+		"method":    "recon",
+		"mode":      "runtime-mainline",
+		"workspace": bestWorkspace,
+		"runtime": map[string]any{
+			"backend":   "stable_diffusion",
+			"scheduler": "ddim",
+		},
+		"metrics": map[string]any{
+			"auc":             0.866,
+			"asr":             0.51,
+			"tpr_at_1pct_fpr": 1.0,
+		},
+		"artifact_paths": map[string]any{
+			"summary": filepath.Join(bestWorkspace, "summary.json"),
+		},
+	})
+
+	writeJSONFile(t, filepath.Join(experimentsRoot, "blackbox-status", "summary.json"), map[string]any{
+		"status": "ready",
+		"track":  "black-box",
+		"methods": map[string]any{
+			"recon": map[string]any{
+				"best_evidence_path": filepath.Join(bestWorkspace, "summary.json"),
+			},
+		},
+	})
+
+	server := NewServer(Config{
+		ExperimentsRoot: experimentsRoot,
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/catalog", nil)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	payload := decodeJSONArrayResponse(t, recorder)
+	entry := findCatalogEntry(t, payload, "recon", "sd15-ddim")
+	if entry["evidence_level"] != "best-summary" {
+		t.Fatalf("expected best-summary evidence_level, got %v", entry["evidence_level"])
+	}
+	if entry["best_summary_path"] != filepath.Join(bestWorkspace, "summary.json") {
+		t.Fatalf("expected best_summary_path to point at best recon summary, got %v", entry["best_summary_path"])
+	}
+	if entry["best_workspace"] != bestWorkspace {
+		t.Fatalf("expected best_workspace %s, got %v", bestWorkspace, entry["best_workspace"])
+	}
+
+	kandinsky := findCatalogEntry(t, payload, "recon", "kandinsky-v22")
+	if kandinsky["evidence_level"] != "catalog" {
+		t.Fatalf("expected unmatched entry to stay catalog evidence, got %v", kandinsky["evidence_level"])
 	}
 }
 

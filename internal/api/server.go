@@ -68,6 +68,26 @@ type modelOption struct {
 	Scheduler    *string `json:"scheduler"`
 }
 
+type catalogEntry struct {
+	Key             string  `json:"key"`
+	AccessLevel     string  `json:"access_level"`
+	AttackFamily    string  `json:"attack_family"`
+	TargetKey       string  `json:"target_key"`
+	Availability    string  `json:"availability"`
+	EvidenceLevel   string  `json:"evidence_level"`
+	Label           string  `json:"label"`
+	Paper           string  `json:"paper"`
+	Backend         string  `json:"backend"`
+	Scheduler       *string `json:"scheduler"`
+	BestSummaryPath *string `json:"best_summary_path"`
+	BestWorkspace   *string `json:"best_workspace"`
+}
+
+type catalogEvidence struct {
+	summaryPath string
+	workspace   string
+}
+
 type configError struct {
 	message string
 }
@@ -121,6 +141,7 @@ func NewServer(config Config) *Server {
 		mux:    mux,
 	}
 	mux.HandleFunc("GET /health", server.handleHealth)
+	mux.HandleFunc("GET /api/v1/catalog", server.handleCatalog)
 	mux.HandleFunc("GET /api/v1/models", server.handleModels)
 	mux.HandleFunc("GET /api/v1/experiments/recon/best", server.handleBestRecon)
 	mux.HandleFunc("GET /api/v1/experiments/{workspace}/summary", server.handleWorkspaceSummary)
@@ -178,6 +199,10 @@ func (s *Server) handleHealth(writer http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleModels(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, models)
+}
+
+func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
+	writeJSON(writer, http.StatusOK, s.catalogEntries())
 }
 
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {
@@ -276,6 +301,98 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 		return
 	}
 	writeJSON(writer, http.StatusOK, summaryEnvelope(summaryPath, payload))
+}
+
+func (s *Server) catalogEntries() []catalogEntry {
+	evidenceByTarget := s.reconEvidenceByTarget()
+	entries := make([]catalogEntry, 0, len(models))
+	for _, model := range models {
+		if model.Method != "recon" {
+			continue
+		}
+
+		entry := catalogEntry{
+			Key:             model.AccessLevel + "/" + model.Method + "/" + model.Key,
+			AccessLevel:     model.AccessLevel,
+			AttackFamily:    model.Method,
+			TargetKey:       model.Key,
+			Availability:    model.Availability,
+			EvidenceLevel:   "catalog",
+			Label:           model.Label,
+			Paper:           model.Paper,
+			Backend:         model.Backend,
+			Scheduler:       model.Scheduler,
+			BestSummaryPath: nil,
+			BestWorkspace:   nil,
+		}
+
+		if evidence, ok := evidenceByTarget[model.Key]; ok {
+			entry.EvidenceLevel = "best-summary"
+			entry.BestSummaryPath = stringPtr(evidence.summaryPath)
+			if evidence.workspace != "" {
+				entry.BestWorkspace = stringPtr(evidence.workspace)
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func (s *Server) reconEvidenceByTarget() map[string]catalogEvidence {
+	summaryPath, err := s.bestReconSummaryPath()
+	if err != nil {
+		return map[string]catalogEvidence{}
+	}
+
+	payload, err := readJSONFile(summaryPath)
+	if err != nil {
+		return map[string]catalogEvidence{}
+	}
+
+	targetKey := targetKeyForSummary(payload)
+	if targetKey == "" {
+		return map[string]catalogEvidence{}
+	}
+
+	workspace, _ := payload["workspace"].(string)
+	return map[string]catalogEvidence{
+		targetKey: {
+			summaryPath: summaryPath,
+			workspace:   workspace,
+		},
+	}
+}
+
+func targetKeyForSummary(payload map[string]any) string {
+	method, _ := payload["method"].(string)
+	if method != "recon" {
+		return ""
+	}
+
+	runtime, ok := payload["runtime"].(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	backend, _ := runtime["backend"].(string)
+	scheduler, _ := runtime["scheduler"].(string)
+	for _, model := range models {
+		if model.Method != "recon" || model.Backend != backend {
+			continue
+		}
+		if scheduler != "" {
+			if model.Scheduler != nil && *model.Scheduler == scheduler {
+				return model.Key
+			}
+			continue
+		}
+		if model.Scheduler == nil {
+			return model.Key
+		}
+	}
+
+	return ""
 }
 
 func (s *Server) bestReconSummaryPath() (string, error) {
