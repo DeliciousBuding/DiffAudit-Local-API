@@ -41,6 +41,12 @@ powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\ru
 - experiments root: `D:\Code\DiffAudit\Project\experiments`
 - jobs root: `D:\Code\DiffAudit\Project\workspaces\local-api\jobs`
 - project root: `D:\Code\DiffAudit\Project`
+
+## Remote / Backup
+
+Current strategy notes live in:
+
+- `D:\Code\DiffAudit\Services\Local-API\REMOTE_STRATEGY.md`
 - gpu scheduler: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-scheduler.exe`
 - gpu request doc: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-resource-requests.md`
 
