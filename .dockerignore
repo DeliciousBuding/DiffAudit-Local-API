@@ -1,0 +1,15 @@
+.git
+.github
+.gitignore
+.gitattributes
+.env
+.env.*
+!.env.example
+config/*.env
+AGENTS.md
+README.md
+REMOTE_STRATEGY.md
+run-local-api.ps1
+local-api
+local-api.exe
+dist/
