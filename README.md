@@ -138,6 +138,14 @@ as:
 - summary hydration rules proven against non-smoke evidence
 - asset-grade / provenance approval for live catalog exposure
 
+Job observability note:
+
+- the default execution path still uses Go `CombinedOutput()`
+- when that path fails, `command` is recorded and the merged command-output tail
+  is stored in `stderr_tail` as a failure log tail
+- this is useful for debugging, but it is not a strict stdout/stderr split
+- a future runner can provide stronger stream semantics if needed
+
 ## Environment Variables
 
 - `DIFFAUDIT_LOCAL_API_HOST`
