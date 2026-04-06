@@ -171,8 +171,9 @@ This repository uses a minimal release gate in
 
 - Pull requests and pushes to `main` run `go test ./...` and a Linux
   `go build ./cmd/local-api` check.
-- Tags matching `v*` run the same verification, upload the built Linux binary
-  as a workflow artifact, and validate the Docker image with `docker build`.
+- Tags matching `v*` run the same verification, build a Linux `amd64` release
+  binary, generate a SHA256 checksum, attach both files to the GitHub Release,
+  and validate the Docker image with `docker build`.
 
 Release flow:
 
@@ -182,7 +183,47 @@ git push origin v0.1.0
 ```
 
 The tag is the release trigger. This workflow is validation-only for now: it
-does not publish a container image or create a GitHub Release automatically.
+does not publish a container image, but it now turns a tagged release into a
+directly downloadable GitHub Release asset set:
+
+- `local-api-linux-amd64`
+- `local-api-linux-amd64.sha256`
+
+Current release-consumption path:
+
+1. Open the tagged GitHub Release page.
+2. Download `local-api-linux-amd64`.
+3. Download `local-api-linux-amd64.sha256`.
+4. Verify the checksum before promoting the binary into your runtime path.
+
+Example verification on Linux:
+
+```bash
+sha256sum -c local-api-linux-amd64.sha256
+```
+
+Current scope and limitation:
+
+- the workflow now produces a consumable Linux `amd64` binary release
+- the workflow still does not publish a container image to a registry
+- Windows and macOS consumers still need to build from source unless a broader
+  release matrix is added later
+
+## License Status
+
+This repository currently does not include a `LICENSE` file.
+
+That is an explicit release-governance gap, not something this workflow can
+decide automatically. Until a license is chosen, the terms for reuse,
+redistribution, and commercial consumption remain undecided.
+
+Current status:
+
+- release assets can be produced and attached to GitHub Releases
+- the legal consumption terms are still pending a license decision
+
+Treat license selection as a required follow-up before calling the public
+release surface fully settled.
 
 ## Governance Boundary
 

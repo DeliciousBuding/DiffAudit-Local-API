@@ -1,5 +1,8 @@
 name: release
 
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:
@@ -27,14 +30,50 @@ jobs:
       - name: Build Linux binary
         run: |
           mkdir -p dist
-          go build -trimpath -o dist/local-api ./cmd/local-api
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o dist/local-api-linux-amd64 ./cmd/local-api
+
+      - name: Write SHA256 checksum
+        run: sha256sum dist/local-api-linux-amd64 > dist/local-api-linux-amd64.sha256
 
       - name: Upload release artifact
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: local-api-${{ github.ref_name }}-linux-amd64
-          path: dist/local-api
+          path: |
+            dist/local-api-linux-amd64
+            dist/local-api-linux-amd64.sha256
+
+  release_assets:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release assets
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o dist/local-api-linux-amd64 ./cmd/local-api
+          sha256sum dist/local-api-linux-amd64 > dist/local-api-linux-amd64.sha256
+
+      - name: Attach assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/local-api-linux-amd64
+            dist/local-api-linux-amd64.sha256
 
   docker:
     if: startsWith(github.ref, 'refs/tags/v')
