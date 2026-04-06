@@ -52,4 +52,11 @@ powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\ru
 
 ## Repository Ownership
 
-Long term, `Services\Local-API` should remain under the `Services` top-level boundary and be promoted into a real Git-tracked service repository. Until that happens, treat this directory as the only writable source of truth for the local API and avoid recreating the same control-plane code inside `Platform` or `Project`.
+`Services\Local-API` remains under the `Services` top-level boundary and is now tracked by its own local Git repository.
+
+Current repository baseline:
+
+- branch: `main`
+- bootstrap commit: `7d8b22c`
+
+Until a remote strategy is decided, treat this directory as the only writable source of truth for the local API and avoid recreating the same control-plane code inside `Platform` or `Project`.
