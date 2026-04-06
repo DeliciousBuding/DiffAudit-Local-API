@@ -44,6 +44,34 @@ powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
   -EnvFile .\config\dev.env
 ```
 
+## Docker
+
+Build the container image from the repository root:
+
+```powershell
+docker build -t diffaudit-local-api:dev .
+```
+
+The container defaults to `0.0.0.0:8765` so it can accept traffic from the
+host. Bind or name the writable paths you want the service to use:
+
+```powershell
+docker run --rm -p 8765:8765 `
+  -e DIFFAUDIT_LOCAL_API_PROJECT_ROOT=/workspace/project `
+  -e DIFFAUDIT_LOCAL_API_REPO_ROOT=/workspace/repo `
+  -e DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT=/workspace/project/experiments `
+  -e DIFFAUDIT_LOCAL_API_JOBS_ROOT=/workspace/jobs `
+  -v C:\path\to\project:/workspace/project `
+  -v C:\path\to\repo:/workspace/repo `
+  -v local-api-jobs:/workspace/jobs `
+  diffaudit-local-api:dev
+```
+
+`DIFFAUDIT_LOCAL_API_PROJECT_ROOT`, `DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT`,
+`DIFFAUDIT_LOCAL_API_JOBS_ROOT`, and `DIFFAUDIT_LOCAL_API_REPO_ROOT` remain the
+same API contract as the native process. The only Docker-specific requirement is
+that the container paths must exist and be writable when job endpoints are used.
+
 ## Configuration Isolation
 
 - Real env files are local-only and ignored by git.
@@ -75,6 +103,26 @@ See `.env.example` and `config/*.example.env` for concrete templates.
 ## Remote / Backup
 
 Strategy notes live in `REMOTE_STRATEGY.md`.
+
+## Release Workflow
+
+This repository uses a minimal release gate in
+`.github/workflows/release.yml`:
+
+- Pull requests and pushes to `main` run `go test ./...` and a Linux
+  `go build ./cmd/local-api` check.
+- Tags matching `v*` run the same verification, upload the built Linux binary
+  as a workflow artifact, and validate the Docker image with `docker build`.
+
+Release flow:
+
+```powershell
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+The tag is the release trigger. This workflow is validation-only for now: it
+does not publish a container image or create a GitHub Release automatically.
 
 ## Governance Boundary
 
