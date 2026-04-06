@@ -23,20 +23,44 @@ type runtimeConfig struct {
 	GPUAgentPrefix   string
 }
 
+func envOrDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func parseConfig(args []string) (runtimeConfig, error) {
 	flagSet := flag.NewFlagSet("local-api", flag.ContinueOnError)
 	flagSet.SetOutput(os.Stdout)
 
-	projectRootDefault := detectProjectRoot(defaultPath("."))
-	localOpsRoot := detectLocalOpsRoot(projectRootDefault)
-	host := flagSet.String("host", "127.0.0.1", "listen host")
-	port := flagSet.String("port", "8765", "listen port")
-	experimentsRoot := flagSet.String("experiments-root", filepath.Join(projectRootDefault, "experiments"), "experiments root")
-	jobsRoot := flagSet.String("jobs-root", filepath.Join(projectRootDefault, "workspaces", "local-api", "jobs"), "jobs root")
+	projectRootFallback := detectProjectRoot(defaultPath("."))
+	projectRootDefault := envOrDefault("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", projectRootFallback)
+	localOpsRootFallback := detectLocalOpsRoot(projectRootDefault)
+	host := flagSet.String("host", envOrDefault("DIFFAUDIT_LOCAL_API_HOST", "127.0.0.1"), "listen host")
+	port := flagSet.String("port", envOrDefault("DIFFAUDIT_LOCAL_API_PORT", "8765"), "listen port")
+	experimentsRoot := flagSet.String(
+		"experiments-root",
+		envOrDefault("DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT", filepath.Join(projectRootDefault, "experiments")),
+		"experiments root",
+	)
+	jobsRoot := flagSet.String(
+		"jobs-root",
+		envOrDefault("DIFFAUDIT_LOCAL_API_JOBS_ROOT", filepath.Join(projectRootDefault, "workspaces", "local-api", "jobs")),
+		"jobs root",
+	)
 	projectRoot := flagSet.String("project-root", projectRootDefault, "project root")
-	gpuScheduler := flagSet.String("gpu-scheduler", filepath.Join(localOpsRoot, "paper-resource-scheduler", "gpu-scheduler.exe"), "local gpu scheduler executable")
-	gpuRequestDoc := flagSet.String("gpu-request-doc", filepath.Join(localOpsRoot, "paper-resource-scheduler", "gpu-resource-requests.md"), "gpu request markdown document")
-	gpuAgentPrefix := flagSet.String("gpu-agent-prefix", "local-api", "gpu request agent prefix")
+	gpuScheduler := flagSet.String(
+		"gpu-scheduler",
+		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_SCHEDULER", filepath.Join(localOpsRootFallback, "paper-resource-scheduler", "gpu-scheduler.exe")),
+		"local gpu scheduler executable",
+	)
+	gpuRequestDoc := flagSet.String(
+		"gpu-request-doc",
+		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC", filepath.Join(localOpsRootFallback, "paper-resource-scheduler", "gpu-resource-requests.md")),
+		"gpu request markdown document",
+	)
+	gpuAgentPrefix := flagSet.String("gpu-agent-prefix", envOrDefault("DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX", "local-api"), "gpu request agent prefix")
 
 	if err := flagSet.Parse(args); err != nil {
 		return runtimeConfig{}, err

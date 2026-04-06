@@ -55,6 +55,46 @@ func TestParseConfigAcceptsOverrides(t *testing.T) {
 	}
 }
 
+func TestParseConfigReadsEnvironmentDefaults(t *testing.T) {
+	t.Setenv("DIFFAUDIT_LOCAL_API_HOST", "0.0.0.0")
+	t.Setenv("DIFFAUDIT_LOCAL_API_PORT", "9901")
+	t.Setenv("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", "D:/portable/project")
+	t.Setenv("DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT", "D:/portable/project/experiments")
+	t.Setenv("DIFFAUDIT_LOCAL_API_JOBS_ROOT", "D:/portable/project/jobs")
+	t.Setenv("DIFFAUDIT_LOCAL_API_GPU_SCHEDULER", "D:/portable/gpu-scheduler.exe")
+	t.Setenv("DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC", "D:/portable/gpu-resource-requests.md")
+	t.Setenv("DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX", "portable-api")
+
+	config, err := parseConfig([]string{})
+	if err != nil {
+		t.Fatalf("parseConfig returned error: %v", err)
+	}
+	if config.Host != "0.0.0.0" {
+		t.Fatalf("expected env host override, got %s", config.Host)
+	}
+	if config.Port != "9901" {
+		t.Fatalf("expected env port override, got %s", config.Port)
+	}
+	if config.ProjectRoot != "D:/portable/project" {
+		t.Fatalf("expected env project root, got %s", config.ProjectRoot)
+	}
+	if config.ExperimentsRoot != "D:/portable/project/experiments" {
+		t.Fatalf("expected env experiments root, got %s", config.ExperimentsRoot)
+	}
+	if config.JobsRoot != "D:/portable/project/jobs" {
+		t.Fatalf("expected env jobs root, got %s", config.JobsRoot)
+	}
+	if config.GPUSchedulerPath != "D:/portable/gpu-scheduler.exe" {
+		t.Fatalf("expected env gpu scheduler, got %s", config.GPUSchedulerPath)
+	}
+	if config.GPURequestDoc != "D:/portable/gpu-resource-requests.md" {
+		t.Fatalf("expected env gpu request doc, got %s", config.GPURequestDoc)
+	}
+	if config.GPUAgentPrefix != "portable-api" {
+		t.Fatalf("expected env gpu agent prefix, got %s", config.GPUAgentPrefix)
+	}
+}
+
 func TestDetectProjectRootFromToolDirectory(t *testing.T) {
 	input := filepath.Clean(`D:\Code\DiffAudit\Services\Local-API`)
 	expected := filepath.Clean(`D:\Code\DiffAudit\Project`)

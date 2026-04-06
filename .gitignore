@@ -11,3 +11,11 @@ coverage.out
 # Editor settings
 .idea/
 .vscode/
+
+# Local runtime environment
+.env
+.env.*
+!.env.example
+config/*.env
+!config/*.example.env
+logs/

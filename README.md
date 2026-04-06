@@ -19,6 +19,8 @@ cd D:\Code\DiffAudit\Services\Local-API
 go run ./cmd/local-api --host 127.0.0.1 --port 8765
 ```
 
+The binary now accepts both flags and environment variables. Flags override env values.
+
 Preferred handoff entry:
 
 ```powershell
@@ -38,11 +40,38 @@ powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\ru
   -JobsRoot D:\Code\DiffAudit\Project\workspaces\local-api\jobs
 ```
 
-## Defaults
+Use an isolated env profile instead of hardcoding machine-specific paths:
 
-- experiments root: `D:\Code\DiffAudit\Project\experiments`
-- jobs root: `D:\Code\DiffAudit\Project\workspaces\local-api\jobs`
-- project root: `D:\Code\DiffAudit\Project`
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\run-local-api.ps1 `
+  -EnvFile D:\Code\DiffAudit\Services\Local-API\config\dev.env
+```
+
+For deployment or public reuse:
+
+- keep real runtime values in ignored files such as `config/dev.env` or `config/deploy.env`
+- commit only the examples:
+  - `config/dev.example.env`
+  - `config/deploy.example.env`
+  - `.env.example`
+- point frontend/backend callers at the service by explicit IP or base URL instead of assuming local loopback
+
+Recommended environment variables:
+
+- `DIFFAUDIT_LOCAL_API_HOST`
+- `DIFFAUDIT_LOCAL_API_PORT`
+- `DIFFAUDIT_LOCAL_API_PROJECT_ROOT`
+- `DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT`
+- `DIFFAUDIT_LOCAL_API_JOBS_ROOT`
+- `DIFFAUDIT_LOCAL_API_GPU_SCHEDULER`
+- `DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC`
+- `DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX`
+
+## Profiles
+
+- Development example: `config/dev.example.env`
+- Deployment example: `config/deploy.example.env`
+- Local-only real env files are gitignored
 
 ## Remote / Backup
 
