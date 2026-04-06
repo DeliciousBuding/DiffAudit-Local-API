@@ -1,62 +1,61 @@
 # Local API Service
 
-Standalone local research control plane for DiffAudit.
+Standalone HTTP control plane for running local research workflows.
 
-## Path
+## Repository Scope
 
-- `D:\Code\DiffAudit\Services\Local-API`
-
-## Purpose
-
-This service exposes the local audit HTTP API and delegates real experiment execution to the Python research CLI in:
-
-- `D:\Code\DiffAudit\Project`
+This repository only contains the Local API service. It integrates with a separate
+research workspace via configured paths and does not assume any fixed parent
+directory.
 
 ## Run
 
 ```powershell
-cd D:\Code\DiffAudit\Services\Local-API
 go run ./cmd/local-api --host 127.0.0.1 --port 8765
 ```
 
-The binary now accepts both flags and environment variables. Flags override env values.
+The binary accepts both flags and environment variables. Flags override env values.
 
-Preferred handoff entry:
+Preferred launcher:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\run-local-api.ps1
+powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1
 ```
 
-The launcher now prints a timestamped startup banner, resolved path summary, and live Go service logs in the same console so operators can immediately see initialization state, listen address, and request activity.
-
-Override roots only when the local workspace layout is different:
+Override roots only when your workspace layout is different:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\run-local-api.ps1 `
+powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
   -ListenHost 127.0.0.1 `
   -ListenPort 8765 `
-  -ProjectRoot D:\Code\DiffAudit\Project `
-  -ExperimentsRoot D:\Code\DiffAudit\Project\experiments `
-  -JobsRoot D:\Code\DiffAudit\Project\workspaces\local-api\jobs
+  -ProjectRoot C:\path\to\research-project `
+  -ExperimentsRoot C:\path\to\research-project\experiments `
+  -JobsRoot C:\path\to\local-api\jobs
 ```
 
 Use an isolated env profile instead of hardcoding machine-specific paths:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\run-local-api.ps1 `
-  -EnvFile D:\Code\DiffAudit\Services\Local-API\config\dev.env
+powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
+  -EnvFile .\config\dev.env
 ```
 
-For deployment or public reuse:
+## Configuration Isolation
 
-- keep real runtime values in ignored files such as `config/dev.env` or `config/deploy.env`
-- commit only the examples:
-  - `config/dev.example.env`
-  - `config/deploy.example.env`
-  - `.env.example`
-- point frontend/backend callers at the service by explicit IP or base URL instead of assuming local loopback
+- Real env files are local-only and ignored by git.
+- Commit examples only: `.env.example`, `config/dev.example.env`, `config/deploy.example.env`.
+- Keep dev and deploy values in separate files to avoid accidental cross-use.
 
-Recommended environment variables:
+## Base URL for Callers
+
+Callers should configure their own base URL pointing at this service, for example:
+
+- `http://127.0.0.1:8765`
+- `https://api.example.com/local-api` (behind a reverse proxy)
+
+Do not assume loopback or a fixed workspace path in client configs.
+
+## Environment Variables
 
 - `DIFFAUDIT_LOCAL_API_HOST`
 - `DIFFAUDIT_LOCAL_API_PORT`
@@ -67,33 +66,14 @@ Recommended environment variables:
 - `DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC`
 - `DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX`
 
-## Profiles
-
-- Development example: `config/dev.example.env`
-- Deployment example: `config/deploy.example.env`
-- Local-only real env files are gitignored
+See `.env.example` and `config/*.example.env` for concrete templates.
 
 ## Remote / Backup
 
-Current strategy notes live in:
-
-- `D:\Code\DiffAudit\Services\Local-API\REMOTE_STRATEGY.md`
-- gpu scheduler: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-scheduler.exe`
-- gpu request doc: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-resource-requests.md`
+Strategy notes live in `REMOTE_STRATEGY.md`.
 
 ## Governance Boundary
 
-- Source of truth for the local research control plane stays in `D:\Code\DiffAudit\Services\Local-API`.
-- `D:\Code\DiffAudit\Platform\apps\api-go` is a gateway only and must not absorb local job execution logic.
-- `D:\Code\DiffAudit\Project` remains a read-only fact source plus Python execution target for this service.
-
-## Repository Ownership
-
-`Services\Local-API` remains under the `Services` top-level boundary and is now tracked by its own local Git repository.
-
-Current repository baseline:
-
-- branch: `main`
-- bootstrap commit: `7d8b22c`
-
-Until a remote strategy is decided, treat this directory as the only writable source of truth for the local API and avoid recreating the same control-plane code inside `Platform` or `Project`.
+- This repo is the source of truth for the Local API service code.
+- External research execution and GPU scheduling are configured by paths, not embedded here.
+- Keep client integrations via documented HTTP interfaces and base URL configuration.
