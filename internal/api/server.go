@@ -60,17 +60,6 @@ type auditJobRecord struct {
 	StderrTail    []string       `json:"stderr_tail"`
 }
 
-type modelOption struct {
-	Key          string  `json:"key"`
-	Label        string  `json:"label"`
-	AccessLevel  string  `json:"access_level"`
-	Availability string  `json:"availability"`
-	Paper        string  `json:"paper"`
-	Method       string  `json:"method"`
-	Backend      string  `json:"backend"`
-	Scheduler    *string `json:"scheduler"`
-}
-
 type catalogEntry struct {
 	ContractKey     string  `json:"contract_key"`
 	Track           string  `json:"track"`
@@ -97,56 +86,6 @@ type configError struct {
 
 func (err configError) Error() string {
 	return err.message
-}
-
-type jobDefinition struct {
-	ContractKey    string
-	RequiredInputs []string
-	RequestsGPU    bool
-}
-
-var models = []modelOption{
-	{
-		Key:          "sd15-ddim",
-		Label:        "Stable Diffusion 1.5 + DDIM",
-		AccessLevel:  "black-box",
-		Availability: "ready",
-		Paper:        "BlackBox_Reconstruction_ArXiv2023",
-		Method:       "recon",
-		Backend:      "stable_diffusion",
-		Scheduler:    stringPtr("ddim"),
-	},
-	{
-		Key:          "kandinsky-v22",
-		Label:        "Kandinsky v2.2",
-		AccessLevel:  "black-box",
-		Availability: "partial",
-		Paper:        "BlackBox_Reconstruction_ArXiv2023",
-		Method:       "recon",
-		Backend:      "kandinsky_v22",
-	},
-	{
-		Key:          "dit-xl2-256",
-		Label:        "DiT-XL/2 256",
-		AccessLevel:  "black-box",
-		Availability: "partial",
-		Paper:        "Scalable_Diffusion_Transformers_2022",
-		Method:       "sample",
-		Backend:      "dit",
-	},
-}
-
-var auditJobDefinitions = map[string]jobDefinition{
-	"recon_artifact_mainline": {
-		ContractKey:    "black-box/recon/sd15-ddim",
-		RequiredInputs: []string{"artifact_dir"},
-		RequestsGPU:    false,
-	},
-	"recon_runtime_mainline": {
-		ContractKey:    "black-box/recon/sd15-ddim",
-		RequiredInputs: nil,
-		RequestsGPU:    true,
-	},
 }
 
 func stringPtr(value string) *string {
@@ -220,7 +159,7 @@ func (s *Server) handleHealth(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleModels(writer http.ResponseWriter, _ *http.Request) {
-	writeJSON(writer, http.StatusOK, models)
+	writeJSON(writer, http.StatusOK, liveModelOptions())
 }
 
 func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
@@ -329,28 +268,29 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 
 func (s *Server) catalogEntries() []catalogEntry {
 	evidenceByTarget := s.reconEvidenceByTarget()
-	entries := make([]catalogEntry, 0, len(models))
-	for _, model := range models {
-		if model.Method != "recon" {
+	definitions := catalogContractDefinitions()
+	entries := make([]catalogEntry, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.AttackFamily != "recon" {
 			continue
 		}
 
 		entry := catalogEntry{
-			ContractKey:     model.AccessLevel + "/" + model.Method + "/" + model.Key,
-			Track:           model.AccessLevel,
-			AttackFamily:    model.Method,
-			TargetKey:       model.Key,
-			Availability:    model.Availability,
-			EvidenceLevel:   "catalog",
-			Label:           model.Label,
-			Paper:           model.Paper,
-			Backend:         model.Backend,
-			Scheduler:       model.Scheduler,
+			ContractKey:     definition.ContractKey,
+			Track:           definition.Track,
+			AttackFamily:    definition.AttackFamily,
+			TargetKey:       definition.TargetKey,
+			Availability:    definition.Availability,
+			EvidenceLevel:   definition.DefaultEvidenceLevel,
+			Label:           definition.Label,
+			Paper:           definition.Paper,
+			Backend:         definition.Backend,
+			Scheduler:       definition.Scheduler,
 			BestSummaryPath: nil,
 			BestWorkspace:   nil,
 		}
 
-		if evidence, ok := evidenceByTarget[model.Key]; ok {
+		if evidence, ok := evidenceByTarget[definition.TargetKey]; ok {
 			entry.EvidenceLevel = "best-summary"
 			entry.BestSummaryPath = stringPtr(evidence.summaryPath)
 			if evidence.workspace != "" {
@@ -401,18 +341,18 @@ func targetKeyForSummary(payload map[string]any) string {
 
 	backend, _ := runtime["backend"].(string)
 	scheduler, _ := runtime["scheduler"].(string)
-	for _, model := range models {
-		if model.Method != "recon" || model.Backend != backend {
+	for _, definition := range catalogContractDefinitions() {
+		if definition.AttackFamily != "recon" || definition.Backend != backend {
 			continue
 		}
 		if scheduler != "" {
-			if model.Scheduler != nil && *model.Scheduler == scheduler {
-				return model.Key
+			if definition.Scheduler != nil && *definition.Scheduler == scheduler {
+				return definition.TargetKey
 			}
 			continue
 		}
-		if model.Scheduler == nil {
-			return model.Key
+		if definition.Scheduler == nil {
+			return definition.TargetKey
 		}
 	}
 
@@ -547,14 +487,14 @@ func validateCreatePayload(payload auditJobCreate) error {
 	if strings.Contains(payload.WorkspaceName, "/") || strings.Contains(payload.WorkspaceName, "\\") {
 		return errors.New("workspace_name must be a single workspace directory name")
 	}
-	definition, ok := auditJobDefinitions[payload.JobType]
+	job, definition, ok := liveJobDefinition(payload.JobType)
 	if !ok {
 		return errors.New("unsupported job_type")
 	}
 	if payload.ContractKey != definition.ContractKey {
 		return errors.New("contract_key does not match job_type")
 	}
-	for _, key := range definition.RequiredInputs {
+	for _, key := range job.RequiredInputs {
 		if value := strings.TrimSpace(jobInputString(payload, key)); value == "" {
 			return errors.New(payload.JobType + " requires " + key)
 		}
@@ -761,11 +701,11 @@ func defaultExecCommand(command []string, dir string) ([]byte, error) {
 }
 
 func shouldRequestGPU(payload auditJobCreate) bool {
-	definition, ok := auditJobDefinitions[payload.JobType]
+	job, _, ok := liveJobDefinition(payload.JobType)
 	if !ok {
 		return true
 	}
-	return definition.RequestsGPU
+	return job.RequestsGPU
 }
 
 func (s *Server) acquireGPU(agent string) (func(), error) {
@@ -837,7 +777,11 @@ func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, rep
 	if method == "" {
 		method = "threshold"
 	}
-	if payload.JobType == "recon_artifact_mainline" {
+	job, _, ok := liveJobDefinition(payload.JobType)
+	if !ok {
+		return nil
+	}
+	if job.Runner == "recon_artifact_mainline" {
 		return []string{
 			"python",
 			"-m",
@@ -853,18 +797,21 @@ func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, rep
 			method,
 		}
 	}
-	return []string{
-		"python",
-		"-m",
-		"diffaudit",
-		"run-recon-runtime-mainline",
-		"--workspace",
-		workspacePath,
-		"--repo-root",
-		repoRoot,
-		"--method",
-		method,
+	if job.Runner == "recon_runtime_mainline" {
+		return []string{
+			"python",
+			"-m",
+			"diffaudit",
+			"run-recon-runtime-mainline",
+			"--workspace",
+			workspacePath,
+			"--repo-root",
+			repoRoot,
+			"--method",
+			method,
+		}
 	}
+	return nil
 }
 
 func headlineMetrics(payload map[string]any) map[string]any {

@@ -119,6 +119,16 @@ with the wrong contract. Contract-specific fields should go under `job_inputs`.
 Current recon callers may still send legacy top-level `artifact_dir` and
 `method`, and the service normalizes them into `job_inputs` internally.
 
+Internally, `Local-API` now keeps a contract registry that separates:
+
+- live contracts that power the current public `catalog`, `models`, and job routes
+- target contracts that describe future gray-box / white-box admission without
+  pretending those lines are executable today
+
+The current live executable line remains `black-box/recon/sd15-ddim`. Gray-box
+and white-box rows are registry-only placeholders until they have admitted job
+definitions and stable runnable assets.
+
 ## Environment Variables
 
 - `DIFFAUDIT_LOCAL_API_HOST`

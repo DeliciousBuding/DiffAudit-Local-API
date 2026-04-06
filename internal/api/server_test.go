@@ -57,6 +57,17 @@ func findCatalogEntry(t *testing.T, payload []map[string]any, attackFamily strin
 	return nil
 }
 
+func findContractDefinition(t *testing.T, contractKey string) contractDefinition {
+	t.Helper()
+	for _, definition := range contractRegistry {
+		if definition.ContractKey == contractKey {
+			return definition
+		}
+	}
+	t.Fatalf("missing contract definition %s", contractKey)
+	return contractDefinition{}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	root := t.TempDir()
 	server := NewServer(Config{
@@ -292,6 +303,45 @@ func TestModelsEndpoint(t *testing.T) {
 
 	if len(payload) < 3 {
 		t.Fatalf("expected at least 3 models, got %d", len(payload))
+	}
+}
+
+func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
+	pia := findContractDefinition(t, "gray-box/pia/cifar10-ddpm")
+	if pia.ContractStatus != "target" {
+		t.Fatalf("expected pia contract_status target, got %s", pia.ContractStatus)
+	}
+	if pia.CatalogVisible {
+		t.Fatalf("expected pia target contract to stay out of live catalog")
+	}
+	if len(pia.Jobs) != 0 {
+		t.Fatalf("expected pia target contract to have no live jobs, got %d", len(pia.Jobs))
+	}
+	if pia.FeatureAccess != "epsilon_t" {
+		t.Fatalf("expected pia feature_access epsilon_t, got %s", pia.FeatureAccess)
+	}
+
+	gsa := findContractDefinition(t, "white-box/gsa/ddpm-cifar10")
+	if gsa.ContractStatus != "target" {
+		t.Fatalf("expected gsa contract_status target, got %s", gsa.ContractStatus)
+	}
+	if gsa.CatalogVisible {
+		t.Fatalf("expected gsa target contract to stay out of live catalog")
+	}
+	if len(gsa.Jobs) != 0 {
+		t.Fatalf("expected gsa target contract to have no live jobs, got %d", len(gsa.Jobs))
+	}
+	if gsa.FeatureAccess != "gradient" {
+		t.Fatalf("expected gsa feature_access gradient, got %s", gsa.FeatureAccess)
+	}
+}
+
+func TestLiveJobRegistryStaysBoundToBlackBoxRecon(t *testing.T) {
+	if _, _, ok := liveJobDefinition("recon_artifact_mainline"); !ok {
+		t.Fatal("expected live recon artifact job definition")
+	}
+	if _, _, ok := liveJobDefinition("pia_runtime_probe"); ok {
+		t.Fatal("did not expect gray-box target job to be live")
 	}
 }
 
