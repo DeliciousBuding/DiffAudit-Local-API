@@ -88,6 +88,17 @@ func (err configError) Error() string {
 	return err.message
 }
 
+type commandExecutionError struct {
+	message    string
+	command    []string
+	stdoutTail []string
+	stderrTail []string
+}
+
+func (err commandExecutionError) Error() string {
+	return err.message
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
@@ -167,7 +178,12 @@ func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {
-	summaryPath, err := s.bestReconSummaryPath()
+	definition, ok := contractDefinitionByKey("black-box/recon/sd15-ddim")
+	if !ok {
+		writeError(writer, http.StatusNotFound, "missing live recon contract")
+		return
+	}
+	summaryPath, err := s.bestSummaryPathForContract(definition)
 	if err != nil {
 		writeError(writer, statusCodeForError(err, http.StatusNotFound), err.Error())
 		return
@@ -267,14 +283,9 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 }
 
 func (s *Server) catalogEntries() []catalogEntry {
-	evidenceByTarget := s.reconEvidenceByTarget()
 	definitions := catalogContractDefinitions()
 	entries := make([]catalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
-		if definition.AttackFamily != "recon" {
-			continue
-		}
-
 		entry := catalogEntry{
 			ContractKey:     definition.ContractKey,
 			Track:           definition.Track,
@@ -290,7 +301,7 @@ func (s *Server) catalogEntries() []catalogEntry {
 			BestWorkspace:   nil,
 		}
 
-		if evidence, ok := evidenceByTarget[definition.TargetKey]; ok {
+		if evidence, ok := s.catalogEvidenceForContract(definition); ok {
 			entry.EvidenceLevel = "best-summary"
 			entry.BestSummaryPath = stringPtr(evidence.summaryPath)
 			if evidence.workspace != "" {
@@ -303,63 +314,32 @@ func (s *Server) catalogEntries() []catalogEntry {
 	return entries
 }
 
-func (s *Server) reconEvidenceByTarget() map[string]catalogEvidence {
-	summaryPath, err := s.bestReconSummaryPath()
+func (s *Server) catalogEvidenceForContract(definition contractDefinition) (catalogEvidence, bool) {
+	summaryPath, err := s.bestSummaryPathForContract(definition)
 	if err != nil {
-		return map[string]catalogEvidence{}
+		return catalogEvidence{}, false
 	}
-
 	payload, err := readJSONFile(summaryPath)
 	if err != nil {
-		return map[string]catalogEvidence{}
+		return catalogEvidence{}, false
 	}
-
-	targetKey := targetKeyForSummary(payload)
-	if targetKey == "" {
-		return map[string]catalogEvidence{}
-	}
-
 	workspace, _ := payload["workspace"].(string)
-	return map[string]catalogEvidence{
-		targetKey: {
-			summaryPath: summaryPath,
-			workspace:   workspace,
-		},
-	}
+	return catalogEvidence{
+		summaryPath: summaryPath,
+		workspace:   workspace,
+	}, true
 }
 
-func targetKeyForSummary(payload map[string]any) string {
-	method, _ := payload["method"].(string)
-	if method != "recon" {
-		return ""
-	}
-
-	runtime, ok := payload["runtime"].(map[string]any)
-	if !ok {
-		return ""
-	}
-
-	backend, _ := runtime["backend"].(string)
-	scheduler, _ := runtime["scheduler"].(string)
-	for _, definition := range catalogContractDefinitions() {
-		if definition.AttackFamily != "recon" || definition.Backend != backend {
-			continue
-		}
-		if scheduler != "" {
-			if definition.Scheduler != nil && *definition.Scheduler == scheduler {
-				return definition.TargetKey
-			}
-			continue
-		}
-		if definition.Scheduler == nil {
-			return definition.TargetKey
+func (s *Server) bestSummaryPathForContract(definition contractDefinition) (string, error) {
+	if definition.StatusMethodKey != "" {
+		if path, err := s.bestSummaryPathFromStatus(definition); err == nil {
+			return path, nil
 		}
 	}
-
-	return ""
+	return s.bestSummaryPathByScan(definition)
 }
 
-func (s *Server) bestReconSummaryPath() (string, error) {
+func (s *Server) bestSummaryPathFromStatus(definition contractDefinition) (string, error) {
 	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "read experiment summaries")
 	if err != nil {
 		return "", err
@@ -368,9 +348,9 @@ func (s *Server) bestReconSummaryPath() (string, error) {
 	if payload, err := readJSONFile(statusPath); err == nil {
 		methods, ok := payload["methods"].(map[string]any)
 		if ok {
-			recon, ok := methods["recon"].(map[string]any)
+			methodEntry, ok := methods[definition.StatusMethodKey].(map[string]any)
 			if ok {
-				bestPath, ok := recon["best_evidence_path"].(string)
+				bestPath, ok := methodEntry["best_evidence_path"].(string)
 				if ok && bestPath != "" {
 					if _, err := os.Stat(bestPath); err == nil {
 						return bestPath, nil
@@ -379,7 +359,14 @@ func (s *Server) bestReconSummaryPath() (string, error) {
 			}
 		}
 	}
+	return "", errors.New("no status-backed summary found for contract")
+}
 
+func (s *Server) bestSummaryPathByScan(definition contractDefinition) (string, error) {
+	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "read experiment summaries")
+	if err != nil {
+		return "", err
+	}
 	pattern := filepath.Join(experimentsRoot, "*", "summary.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -393,19 +380,18 @@ func (s *Server) bestReconSummaryPath() (string, error) {
 
 	candidates := make([]candidate, 0)
 	for _, path := range matches {
-		payload, err := readJSONFile(path)
-		if err != nil {
+		if !summaryMatchesContract(definition, path) {
 			continue
 		}
-		method, _ := payload["method"].(string)
-		if method != "recon" {
+		payload, err := readJSONFile(path)
+		if err != nil {
 			continue
 		}
 		sampleCount := extractSampleCount(payload)
 		candidates = append(candidates, candidate{path: path, sampleCount: sampleCount})
 	}
 	if len(candidates) == 0 {
-		return "", errors.New("no recon experiment summaries found")
+		return "", errors.New("no experiment summaries found for contract")
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].sampleCount == candidates[j].sampleCount {
@@ -414,6 +400,30 @@ func (s *Server) bestReconSummaryPath() (string, error) {
 		return candidates[i].sampleCount < candidates[j].sampleCount
 	})
 	return candidates[len(candidates)-1].path, nil
+}
+
+func summaryMatchesContract(definition contractDefinition, summaryPath string) bool {
+	payload, err := readJSONFile(summaryPath)
+	if err != nil {
+		return false
+	}
+	method, _ := payload["method"].(string)
+	if method != definition.AttackFamily {
+		return false
+	}
+	runtime, ok := payload["runtime"].(map[string]any)
+	if !ok {
+		return false
+	}
+	backend, _ := runtime["backend"].(string)
+	if backend != definition.Backend {
+		return false
+	}
+	scheduler, _ := runtime["scheduler"].(string)
+	if definition.Scheduler != nil {
+		return scheduler == *definition.Scheduler
+	}
+	return scheduler == ""
 }
 
 func extractSampleCount(payload map[string]any) float64 {
@@ -609,6 +619,11 @@ func statusCodeForError(err error, defaultStatus int) int {
 func (s *Server) runJob(record auditJobRecord) {
 	record.Status = "running"
 	record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if executor := s.config.Executor; executor == nil {
+		if command, err := s.plannedJobCommand(record.Payload, filepath.Join(s.config.ExperimentsRoot, record.WorkspaceName)); err == nil {
+			record.Command = command
+		}
+	}
 	_ = s.writeJob(record)
 
 	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "execute audit jobs")
@@ -653,6 +668,18 @@ func (s *Server) failJob(record auditJobRecord, err error) {
 	record.Status = "failed"
 	record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	record.Error = &message
+	var execErr commandExecutionError
+	if errors.As(err, &execErr) {
+		if len(execErr.command) > 0 {
+			record.Command = execErr.command
+		}
+		if len(execErr.stdoutTail) > 0 {
+			record.StdoutTail = execErr.stdoutTail
+		}
+		if len(execErr.stderrTail) > 0 {
+			record.StderrTail = execErr.stderrTail
+		}
+	}
 	_ = s.writeJob(record)
 }
 
@@ -686,10 +713,11 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 	}
 	output, err := execFn(command, projectRoot)
 	if err != nil {
-		if len(output) > 0 {
-			return errors.New(strings.TrimSpace(string(output)))
+		return commandExecutionError{
+			message:    commandFailureMessage(err, output),
+			command:    command,
+			stderrTail: outputTailLines(output),
 		}
-		return err
 	}
 	return nil
 }
@@ -770,6 +798,18 @@ func (s *Server) resolveRepoRoot(payload auditJobCreate) (string, error) {
 		return repoRoot, nil
 	}
 	return requireConfigPath("repo_root", s.config.RepoRoot, "execute audit jobs")
+}
+
+func (s *Server) plannedJobCommand(payload auditJobCreate, workspacePath string) ([]string, error) {
+	repoRoot, err := s.resolveRepoRoot(payload)
+	if err != nil {
+		return nil, err
+	}
+	command := s.pythonCommand(payload, workspacePath, repoRoot)
+	if len(command) == 0 {
+		return nil, errors.New("empty job command")
+	}
+	return command, nil
 }
 
 func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, repoRoot string) []string {
@@ -893,4 +933,29 @@ func cloneMap(value map[string]any) map[string]any {
 		cloned[key] = item
 	}
 	return cloned
+}
+
+func commandFailureMessage(err error, output []byte) string {
+	if len(output) > 0 {
+		return strings.TrimSpace(string(output))
+	}
+	return err.Error()
+}
+
+func outputTailLines(output []byte) []string {
+	if len(output) == 0 {
+		return nil
+	}
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	if len(filtered) <= 10 {
+		return filtered
+	}
+	return filtered[len(filtered)-10:]
 }

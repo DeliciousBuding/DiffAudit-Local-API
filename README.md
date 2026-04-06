@@ -129,6 +129,15 @@ The current live executable line remains `black-box/recon/sd15-ddim`. Gray-box
 and white-box rows are registry-only placeholders until they have admitted job
 definitions and stable runnable assets.
 
+A target contract is not promoted to live just because code or smoke assets
+exist. The registry now carries explicit promotion gates for future lines, such
+as:
+
+- stable admitted `job_type` and runner support
+- line-owned promoted asset roots
+- summary hydration rules proven against non-smoke evidence
+- asset-grade / provenance approval for live catalog exposure
+
 ## Environment Variables
 
 - `DIFFAUDIT_LOCAL_API_HOST`

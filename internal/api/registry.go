@@ -36,10 +36,12 @@ type contractDefinition struct {
 	RequiredInputsNow    []string
 	OptionalInputsLater  []string
 	PromotedAssetRoots   []string
+	LivePromotionGates   []string
 	SystemGap            string
 	CatalogVisible       bool
 	Model                *modelOption
 	Jobs                 []jobDefinition
+	StatusMethodKey      string
 }
 
 var contractRegistry = []contractDefinition{
@@ -64,8 +66,13 @@ var contractRegistry = []contractDefinition{
 			"shadow_model_dir",
 			"runtime_dataset_payload",
 		},
-		SystemGap:      "public Local-API contract still models artifact replay more fully than runtime intake",
-		CatalogVisible: true,
+		LivePromotionGates: []string{
+			"runtime and artifact intake remain admitted in public api",
+			"blackbox-status best evidence path resolves to a matching recon summary",
+		},
+		SystemGap:       "public Local-API contract still models artifact replay more fully than runtime intake",
+		CatalogVisible:  true,
+		StatusMethodKey: "recon",
 		Model: &modelOption{
 			Key:          "sd15-ddim",
 			Label:        "Stable Diffusion 1.5 + DDIM",
@@ -170,6 +177,12 @@ var contractRegistry = []contractDefinition{
 			"Project/workspaces/gray-box/assets/pia/checkpoints",
 			"Project/workspaces/gray-box/assets/pia/datasets",
 		},
+		LivePromotionGates: []string{
+			"line-owned promoted checkpoint and dataset roots exist",
+			"stable admitted job_type and runner are implemented",
+			"summary hydration rule is proven against real non-smoke evidence",
+			"asset grade and provenance status are approved for live catalog exposure",
+		},
 		SystemGap: "missing unified runtime mainline command and admitted Local-API live job contract",
 	},
 	{
@@ -198,6 +211,12 @@ var contractRegistry = []contractDefinition{
 		PromotedAssetRoots: []string{
 			"Project/workspaces/white-box/assets/gsa/models",
 			"Project/workspaces/white-box/assets/gsa/datasets",
+		},
+		LivePromotionGates: []string{
+			"promoted gsa asset roots exist with runnable checkpoint layout",
+			"white-box diff-audit adapter and admitted job_type are implemented",
+			"non-smoke member/non-member inputs are available",
+			"summary hydration rule is proven against non-toy evidence",
 		},
 		SystemGap: "no diff-audit adapter, no admitted Local-API live job contract, and no promoted live asset root yet",
 	},
@@ -236,4 +255,13 @@ func liveJobDefinition(jobType string) (jobDefinition, contractDefinition, bool)
 		}
 	}
 	return jobDefinition{}, contractDefinition{}, false
+}
+
+func contractDefinitionByKey(contractKey string) (contractDefinition, bool) {
+	for _, definition := range contractRegistry {
+		if definition.ContractKey == contractKey {
+			return definition, true
+		}
+	}
+	return contractDefinition{}, false
 }

@@ -320,6 +320,9 @@ func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
 	if pia.FeatureAccess != "epsilon_t" {
 		t.Fatalf("expected pia feature_access epsilon_t, got %s", pia.FeatureAccess)
 	}
+	if len(pia.LivePromotionGates) == 0 {
+		t.Fatal("expected pia live promotion gates")
+	}
 
 	gsa := findContractDefinition(t, "white-box/gsa/ddpm-cifar10")
 	if gsa.ContractStatus != "target" {
@@ -333,6 +336,9 @@ func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
 	}
 	if gsa.FeatureAccess != "gradient" {
 		t.Fatalf("expected gsa feature_access gradient, got %s", gsa.FeatureAccess)
+	}
+	if len(gsa.LivePromotionGates) == 0 {
+		t.Fatal("expected gsa live promotion gates")
 	}
 }
 
@@ -996,6 +1002,55 @@ func TestBackgroundJobExecutionFailurePersistsError(t *testing.T) {
 	record := waitForJobStatus(t, server, jobID, "failed")
 	if record["error"] == nil {
 		t.Fatalf("expected error to be filled")
+	}
+}
+
+func TestBackgroundJobFailureCapturesCommandAndOutputTail(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+		ProjectRoot:     root,
+		RepoRoot:        "D:/repo",
+		AutoStartJobs:   true,
+		ExecCommand: func(command []string, dir string) ([]byte, error) {
+			return []byte("line-1\nline-2\nline-3"), errors.New("process failed")
+		},
+	})
+
+	data, err := json.Marshal(map[string]any{
+		"job_type":       "recon_artifact_mainline",
+		"contract_key":   "black-box/recon/sd15-ddim",
+		"workspace_name": "api-job-fail-observable",
+		"artifact_dir":   "D:/artifacts/recon-scores",
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", recorder.Code)
+	}
+
+	created := decodeJSONResponse(t, recorder)
+	jobID := created["job_id"].(string)
+
+	record := waitForJobStatus(t, server, jobID, "failed")
+	command, ok := record["command"].([]any)
+	if !ok || len(command) == 0 {
+		t.Fatalf("expected command to be captured, got %v", record["command"])
+	}
+	stderrTail, ok := record["stderr_tail"].([]any)
+	if !ok || len(stderrTail) == 0 {
+		t.Fatalf("expected stderr_tail to be captured, got %v", record["stderr_tail"])
+	}
+	if stderrTail[len(stderrTail)-1] != "line-3" {
+		t.Fatalf("expected last stderr tail line line-3, got %v", stderrTail)
 	}
 }
 
