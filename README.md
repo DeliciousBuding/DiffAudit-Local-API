@@ -25,6 +25,8 @@ Preferred handoff entry:
 powershell -ExecutionPolicy Bypass -File D:\Code\DiffAudit\Services\Local-API\run-local-api.ps1
 ```
 
+The launcher now prints a timestamped startup banner, resolved path summary, and live Go service logs in the same console so operators can immediately see initialization state, listen address, and request activity.
+
 Override roots only when the local workspace layout is different:
 
 ```powershell

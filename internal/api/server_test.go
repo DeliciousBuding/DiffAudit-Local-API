@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,6 +55,36 @@ func TestHealthEndpoint(t *testing.T) {
 	payload := decodeJSONResponse(t, recorder)
 	if payload["status"] != "ok" {
 		t.Fatalf("expected status ok, got %v", payload["status"])
+	}
+}
+
+func TestRequestLoggingMiddlewareRecordsMethodPathAndStatus(t *testing.T) {
+	var logBuffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{}))
+
+	handler := requestLoggingMiddleware(logger, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusAccepted)
+	}))
+
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", recorder.Code)
+	}
+
+	logOutput := logBuffer.String()
+	for _, want := range []string{
+		"request completed",
+		"method=GET",
+		"path=/health",
+		"status=202",
+	} {
+		if !strings.Contains(logOutput, want) {
+			t.Fatalf("log output missing %q:\n%s", want, logOutput)
+		}
 	}
 }
 

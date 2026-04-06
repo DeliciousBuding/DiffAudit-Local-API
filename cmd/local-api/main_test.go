@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +74,35 @@ func TestDetectLocalOpsRootFromProjectRoot(t *testing.T) {
 
 	if actual != expected {
 		t.Fatalf("expected %s, got %s", expected, actual)
+	}
+}
+
+func TestStartupLogLinesIncludeResolvedPaths(t *testing.T) {
+	config := runtimeConfig{
+		Host:             "0.0.0.0",
+		Port:             "8765",
+		ProjectRoot:      `D:\Code\DiffAudit\Project`,
+		ExperimentsRoot:  `D:\Code\DiffAudit\Project\experiments`,
+		JobsRoot:         `D:\Code\DiffAudit\Project\workspaces\local-api\jobs`,
+		GPUSchedulerPath: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-scheduler.exe`,
+		GPURequestDoc:    `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-resource-requests.md`,
+		GPUAgentPrefix:   "local-api",
+	}
+
+	lines := startupLogLines(config)
+	joined := strings.Join(lines, "\n")
+
+	for _, want := range []string{
+		"listen=0.0.0.0:8765",
+		"project_root=D:\\Code\\DiffAudit\\Project",
+		"experiments_root=D:\\Code\\DiffAudit\\Project\\experiments",
+		"jobs_root=D:\\Code\\DiffAudit\\Project\\workspaces\\local-api\\jobs",
+		"gpu_scheduler=D:\\Code\\DiffAudit\\LocalOps\\paper-resource-scheduler\\gpu-scheduler.exe",
+		"gpu_request_doc=D:\\Code\\DiffAudit\\LocalOps\\paper-resource-scheduler\\gpu-resource-requests.md",
+		"gpu_agent_prefix=local-api",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("startup lines missing %q:\n%s", want, joined)
+		}
 	}
 }

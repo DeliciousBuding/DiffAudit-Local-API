@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -123,7 +124,41 @@ func NewServer(config Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return requestLoggingMiddleware(slog.Default(), s.mux)
+}
+
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (writer *statusCapturingResponseWriter) WriteHeader(statusCode int) {
+	writer.statusCode = statusCode
+	writer.ResponseWriter.WriteHeader(statusCode)
+}
+
+func requestLoggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		startedAt := time.Now()
+		captured := &statusCapturingResponseWriter{
+			ResponseWriter: writer,
+			statusCode:     http.StatusOK,
+		}
+
+		next.ServeHTTP(captured, request)
+
+		logger.Info(
+			"request completed",
+			"method", request.Method,
+			"path", request.URL.Path,
+			"status", captured.statusCode,
+			"remote_addr", request.RemoteAddr,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+	})
 }
 
 func (s *Server) handleHealth(writer http.ResponseWriter, _ *http.Request) {

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,11 +78,33 @@ func detectLocalOpsRoot(projectRoot string) string {
 	return filepath.Clean(filepath.Join(projectRoot, "..", "LocalOps"))
 }
 
+func startupLogLines(config runtimeConfig) []string {
+	return []string{
+		fmt.Sprintf("listen=%s:%s", config.Host, config.Port),
+		fmt.Sprintf("project_root=%s", config.ProjectRoot),
+		fmt.Sprintf("experiments_root=%s", config.ExperimentsRoot),
+		fmt.Sprintf("jobs_root=%s", config.JobsRoot),
+		fmt.Sprintf("gpu_scheduler=%s", config.GPUSchedulerPath),
+		fmt.Sprintf("gpu_request_doc=%s", config.GPURequestDoc),
+		fmt.Sprintf("gpu_agent_prefix=%s", config.GPUAgentPrefix),
+	}
+}
+
+func configureLogger() *slog.Logger {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+	return logger
+}
+
 func main() {
 	config, err := parseConfig(os.Args[1:])
 	if err != nil {
 		os.Exit(2)
 	}
+
+	logger := configureLogger()
 
 	server := api.NewServer(api.Config{
 		ExperimentsRoot:  config.ExperimentsRoot,
@@ -94,7 +117,13 @@ func main() {
 	})
 
 	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
+	logger.Info("DiffAudit Local API starting")
+	for _, line := range startupLogLines(config) {
+		logger.Info("startup", "detail", line)
+	}
+	logger.Info("HTTP server listening", "address", address)
 	if err := http.ListenAndServe(address, server.Handler()); err != nil {
+		logger.Error("HTTP server stopped", "error", err)
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
