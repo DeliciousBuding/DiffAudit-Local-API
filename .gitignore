@@ -1,0 +1,13 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+
+# Editor settings
+.idea/
+.vscode/
