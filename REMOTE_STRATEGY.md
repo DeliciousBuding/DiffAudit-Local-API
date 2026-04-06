@@ -2,8 +2,9 @@
 
 ## Current State
 
-This repository is standalone and can run without a monorepo. A remote may or may not
-be configured.
+This repository is standalone and now has a dedicated public remote:
+
+- [DeliciousBuding/DiffAudit-Local-API](https://github.com/DeliciousBuding/DiffAudit-Local-API)
 
 ## Recommended Strategy
 
@@ -33,6 +34,7 @@ Before large edits:
 2. commit locally in small steps
 3. verify example configs stay generic and do not include machine-specific paths
 
-## Pending Decision
+## Current Decision
 
-Decide whether the official remote is public or private, and record the URL here once created.
+- Official remote: public GitHub repository
+- Canonical URL: `https://github.com/DeliciousBuding/DiffAudit-Local-API`

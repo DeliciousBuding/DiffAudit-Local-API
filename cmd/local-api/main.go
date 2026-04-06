@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"diffaudit/local-api-go/internal/api"
+	"github.com/DeliciousBuding/DiffAudit-Local-API/internal/api"
 )
 
 type runtimeConfig struct {
 	Host             string
 	Port             string
+	RepoRoot         string
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
@@ -34,30 +35,28 @@ func parseConfig(args []string) (runtimeConfig, error) {
 	flagSet := flag.NewFlagSet("local-api", flag.ContinueOnError)
 	flagSet.SetOutput(os.Stdout)
 
-	projectRootFallback := detectProjectRoot(defaultPath("."))
-	projectRootDefault := envOrDefault("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", projectRootFallback)
-	localOpsRootFallback := detectLocalOpsRoot(projectRootDefault)
 	host := flagSet.String("host", envOrDefault("DIFFAUDIT_LOCAL_API_HOST", "127.0.0.1"), "listen host")
 	port := flagSet.String("port", envOrDefault("DIFFAUDIT_LOCAL_API_PORT", "8765"), "listen port")
+	projectRoot := flagSet.String("project-root", envOrDefault("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", ""), "project root")
+	repoRoot := flagSet.String("repo-root", envOrDefault("DIFFAUDIT_LOCAL_API_REPO_ROOT", ""), "research repo root")
 	experimentsRoot := flagSet.String(
 		"experiments-root",
-		envOrDefault("DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT", filepath.Join(projectRootDefault, "experiments")),
+		envOrDefault("DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT", ""),
 		"experiments root",
 	)
 	jobsRoot := flagSet.String(
 		"jobs-root",
-		envOrDefault("DIFFAUDIT_LOCAL_API_JOBS_ROOT", filepath.Join(projectRootDefault, "workspaces", "local-api", "jobs")),
+		envOrDefault("DIFFAUDIT_LOCAL_API_JOBS_ROOT", ""),
 		"jobs root",
 	)
-	projectRoot := flagSet.String("project-root", projectRootDefault, "project root")
 	gpuScheduler := flagSet.String(
 		"gpu-scheduler",
-		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_SCHEDULER", filepath.Join(localOpsRootFallback, "paper-resource-scheduler", "gpu-scheduler.exe")),
+		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_SCHEDULER", ""),
 		"local gpu scheduler executable",
 	)
 	gpuRequestDoc := flagSet.String(
 		"gpu-request-doc",
-		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC", filepath.Join(localOpsRootFallback, "paper-resource-scheduler", "gpu-resource-requests.md")),
+		envOrDefault("DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC", ""),
 		"gpu request markdown document",
 	)
 	gpuAgentPrefix := flagSet.String("gpu-agent-prefix", envOrDefault("DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX", "local-api"), "gpu request agent prefix")
@@ -66,46 +65,43 @@ func parseConfig(args []string) (runtimeConfig, error) {
 		return runtimeConfig{}, err
 	}
 
+	projectRootValue := cleanPath(*projectRoot)
+	repoRootValue := cleanPath(*repoRoot)
+	experimentsRootValue := cleanPath(*experimentsRoot)
+	if experimentsRootValue == "" && projectRootValue != "" {
+		experimentsRootValue = filepath.Join(projectRootValue, "experiments")
+	}
+	jobsRootValue := cleanPath(*jobsRoot)
+	if jobsRootValue == "" && projectRootValue != "" {
+		jobsRootValue = filepath.Join(projectRootValue, "workspaces", "local-api", "jobs")
+	}
+
 	return runtimeConfig{
 		Host:             *host,
 		Port:             *port,
-		ExperimentsRoot:  *experimentsRoot,
-		JobsRoot:         *jobsRoot,
-		ProjectRoot:      *projectRoot,
-		GPUSchedulerPath: *gpuScheduler,
-		GPURequestDoc:    *gpuRequestDoc,
+		RepoRoot:         repoRootValue,
+		ExperimentsRoot:  experimentsRootValue,
+		JobsRoot:         jobsRootValue,
+		ProjectRoot:      projectRootValue,
+		GPUSchedulerPath: cleanPath(*gpuScheduler),
+		GPURequestDoc:    cleanPath(*gpuRequestDoc),
 		GPUAgentPrefix:   *gpuAgentPrefix,
 	}, nil
 }
 
-func defaultPath(relative string) string {
-	current, err := os.Getwd()
-	if err != nil {
-		return relative
+func cleanPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
 	}
-	if relative == "." {
-		return current
-	}
-	return filepath.Clean(filepath.Join(current, relative))
-}
-
-func detectProjectRoot(current string) string {
-	cleaned := filepath.Clean(current)
-	servicePath := filepath.Join("Services", "Local-API")
-	if strings.HasSuffix(cleaned, servicePath) {
-		return filepath.Clean(filepath.Join(cleaned, "..", "..", "Project"))
-	}
-	return cleaned
-}
-
-func detectLocalOpsRoot(projectRoot string) string {
-	return filepath.Clean(filepath.Join(projectRoot, "..", "LocalOps"))
+	return filepath.Clean(value)
 }
 
 func startupLogLines(config runtimeConfig) []string {
 	return []string{
 		fmt.Sprintf("listen=%s:%s", config.Host, config.Port),
 		fmt.Sprintf("project_root=%s", config.ProjectRoot),
+		fmt.Sprintf("repo_root=%s", config.RepoRoot),
 		fmt.Sprintf("experiments_root=%s", config.ExperimentsRoot),
 		fmt.Sprintf("jobs_root=%s", config.JobsRoot),
 		fmt.Sprintf("gpu_scheduler=%s", config.GPUSchedulerPath),
@@ -134,6 +130,7 @@ func main() {
 		ExperimentsRoot:  config.ExperimentsRoot,
 		JobsRoot:         config.JobsRoot,
 		ProjectRoot:      config.ProjectRoot,
+		RepoRoot:         config.RepoRoot,
 		AutoStartJobs:    true,
 		GPUSchedulerPath: config.GPUSchedulerPath,
 		GPURequestDoc:    config.GPURequestDoc,

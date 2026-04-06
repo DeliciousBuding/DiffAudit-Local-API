@@ -2,6 +2,10 @@
 
 Standalone HTTP control plane for running local research workflows.
 
+Public repository:
+
+- [DeliciousBuding/DiffAudit-Local-API](https://github.com/DeliciousBuding/DiffAudit-Local-API)
+
 ## Repository Scope
 
 This repository only contains the Local API service. It integrates with a separate

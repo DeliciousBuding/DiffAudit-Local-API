@@ -97,6 +97,113 @@ func TestShouldRequestGPU(t *testing.T) {
 	}
 }
 
+func TestNewServerDoesNotFillProjectRootFallback(t *testing.T) {
+	server := NewServer(Config{})
+
+	if server.config.ProjectRoot != "" {
+		t.Fatalf("expected empty project root, got %s", server.config.ProjectRoot)
+	}
+}
+
+func TestExecutePythonJobRequiresProjectRoot(t *testing.T) {
+	server := NewServer(Config{
+		RepoRoot: "D:/repo",
+	})
+
+	err := server.executePythonJob(
+		auditJobCreate{
+			JobType:       "recon_artifact_mainline",
+			WorkspaceName: "workspace-a",
+		},
+		"D:/workspace-a",
+	)
+	if err == nil {
+		t.Fatal("expected missing project root error")
+	}
+	if !strings.Contains(err.Error(), "project_root") {
+		t.Fatalf("expected project_root error, got %v", err)
+	}
+}
+
+func TestExecutePythonJobRequiresRepoRoot(t *testing.T) {
+	server := NewServer(Config{
+		ProjectRoot: "D:/project",
+	})
+
+	err := server.executePythonJob(
+		auditJobCreate{
+			JobType:       "recon_artifact_mainline",
+			WorkspaceName: "workspace-a",
+		},
+		"D:/workspace-a",
+	)
+	if err == nil {
+		t.Fatal("expected missing repo root error")
+	}
+	if !strings.Contains(err.Error(), "repo_root") {
+		t.Fatalf("expected repo_root error, got %v", err)
+	}
+}
+
+func TestExecutePythonJobRequiresGPUPathsForRuntimeJobs(t *testing.T) {
+	server := NewServer(Config{
+		ProjectRoot: "D:/project",
+		RepoRoot:    "D:/repo",
+	})
+
+	err := server.executePythonJob(
+		auditJobCreate{
+			JobType:       "recon_runtime_mainline",
+			WorkspaceName: "workspace-a",
+		},
+		"D:/workspace-a",
+	)
+	if err == nil {
+		t.Fatal("expected missing gpu configuration error")
+	}
+	if !strings.Contains(err.Error(), "gpu_scheduler") {
+		t.Fatalf("expected gpu_scheduler error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "gpu_request_doc") {
+		t.Fatalf("expected gpu_request_doc error, got %v", err)
+	}
+}
+
+func TestExecutePythonJobUsesConfiguredRepoRoot(t *testing.T) {
+	root := t.TempDir()
+	var gotCommand []string
+	var gotDir string
+
+	server := NewServer(Config{
+		ProjectRoot: root,
+		RepoRoot:    "D:/repo-from-config",
+		ExecCommand: func(command []string, dir string) ([]byte, error) {
+			gotCommand = append([]string(nil), command...)
+			gotDir = dir
+			return []byte("ok"), nil
+		},
+	})
+
+	err := server.executePythonJob(
+		auditJobCreate{
+			JobType:       "recon_artifact_mainline",
+			WorkspaceName: "workspace-a",
+			ArtifactDir:   "D:/artifact",
+		},
+		filepath.Join(root, "workspace-a"),
+	)
+	if err != nil {
+		t.Fatalf("executePythonJob returned error: %v", err)
+	}
+	if gotDir != root {
+		t.Fatalf("expected command dir %s, got %s", root, gotDir)
+	}
+	commandLine := strings.Join(gotCommand, "\n")
+	if !strings.Contains(commandLine, "--repo-root\nD:/repo-from-config") {
+		t.Fatalf("expected configured repo root in command, got %v", gotCommand)
+	}
+}
+
 func TestExecutePythonJobAcquiresAndReleasesGPU(t *testing.T) {
 	root := t.TempDir()
 	acquired := 0
@@ -105,6 +212,7 @@ func TestExecutePythonJobAcquiresAndReleasesGPU(t *testing.T) {
 
 	server := NewServer(Config{
 		ProjectRoot: root,
+		RepoRoot:    "D:/repo",
 		AcquireGPU: func(agent string) (func(), error) {
 			acquired++
 			if agent != "local-api-workspace-a" {

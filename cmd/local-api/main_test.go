@@ -17,12 +17,32 @@ func TestParseConfigUsesDefaults(t *testing.T) {
 	if config.Port != "8765" {
 		t.Fatalf("expected default port 8765, got %s", config.Port)
 	}
+	if config.ProjectRoot != "" {
+		t.Fatalf("expected empty default project root, got %s", config.ProjectRoot)
+	}
+	if config.RepoRoot != "" {
+		t.Fatalf("expected empty default repo root, got %s", config.RepoRoot)
+	}
+	if config.ExperimentsRoot != "" {
+		t.Fatalf("expected empty default experiments root, got %s", config.ExperimentsRoot)
+	}
+	if config.JobsRoot != "" {
+		t.Fatalf("expected empty default jobs root, got %s", config.JobsRoot)
+	}
+	if config.GPUSchedulerPath != "" {
+		t.Fatalf("expected empty default gpu scheduler path, got %s", config.GPUSchedulerPath)
+	}
+	if config.GPURequestDoc != "" {
+		t.Fatalf("expected empty default gpu request doc, got %s", config.GPURequestDoc)
+	}
 }
 
 func TestParseConfigAcceptsOverrides(t *testing.T) {
 	config, err := parseConfig([]string{
 		"--host", "0.0.0.0",
 		"--port", "9001",
+		"--project-root", "D:/project",
+		"--repo-root", "D:/repo",
 		"--experiments-root", "D:/exp",
 		"--jobs-root", "D:/jobs",
 		"--gpu-scheduler", "D:/gpu-scheduler.exe",
@@ -38,16 +58,22 @@ func TestParseConfigAcceptsOverrides(t *testing.T) {
 	if config.Port != "9001" {
 		t.Fatalf("expected port override, got %s", config.Port)
 	}
-	if config.ExperimentsRoot != "D:/exp" {
+	if config.ProjectRoot != filepath.Clean("D:/project") {
+		t.Fatalf("expected project-root override, got %s", config.ProjectRoot)
+	}
+	if config.RepoRoot != filepath.Clean("D:/repo") {
+		t.Fatalf("expected repo-root override, got %s", config.RepoRoot)
+	}
+	if config.ExperimentsRoot != filepath.Clean("D:/exp") {
 		t.Fatalf("expected experiments-root override, got %s", config.ExperimentsRoot)
 	}
-	if config.JobsRoot != "D:/jobs" {
+	if config.JobsRoot != filepath.Clean("D:/jobs") {
 		t.Fatalf("expected jobs-root override, got %s", config.JobsRoot)
 	}
-	if config.GPUSchedulerPath != "D:/gpu-scheduler.exe" {
+	if config.GPUSchedulerPath != filepath.Clean("D:/gpu-scheduler.exe") {
 		t.Fatalf("expected gpu-scheduler override, got %s", config.GPUSchedulerPath)
 	}
-	if config.GPURequestDoc != "D:/gpu-resource-requests.md" {
+	if config.GPURequestDoc != filepath.Clean("D:/gpu-resource-requests.md") {
 		t.Fatalf("expected gpu-request-doc override, got %s", config.GPURequestDoc)
 	}
 	if config.GPUAgentPrefix != "api-test" {
@@ -59,6 +85,7 @@ func TestParseConfigReadsEnvironmentDefaults(t *testing.T) {
 	t.Setenv("DIFFAUDIT_LOCAL_API_HOST", "0.0.0.0")
 	t.Setenv("DIFFAUDIT_LOCAL_API_PORT", "9901")
 	t.Setenv("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", "D:/portable/project")
+	t.Setenv("DIFFAUDIT_LOCAL_API_REPO_ROOT", "D:/portable/repo")
 	t.Setenv("DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT", "D:/portable/project/experiments")
 	t.Setenv("DIFFAUDIT_LOCAL_API_JOBS_ROOT", "D:/portable/project/jobs")
 	t.Setenv("DIFFAUDIT_LOCAL_API_GPU_SCHEDULER", "D:/portable/gpu-scheduler.exe")
@@ -75,19 +102,22 @@ func TestParseConfigReadsEnvironmentDefaults(t *testing.T) {
 	if config.Port != "9901" {
 		t.Fatalf("expected env port override, got %s", config.Port)
 	}
-	if config.ProjectRoot != "D:/portable/project" {
+	if config.ProjectRoot != filepath.Clean("D:/portable/project") {
 		t.Fatalf("expected env project root, got %s", config.ProjectRoot)
 	}
-	if config.ExperimentsRoot != "D:/portable/project/experiments" {
+	if config.RepoRoot != filepath.Clean("D:/portable/repo") {
+		t.Fatalf("expected env repo root, got %s", config.RepoRoot)
+	}
+	if config.ExperimentsRoot != filepath.Clean("D:/portable/project/experiments") {
 		t.Fatalf("expected env experiments root, got %s", config.ExperimentsRoot)
 	}
-	if config.JobsRoot != "D:/portable/project/jobs" {
+	if config.JobsRoot != filepath.Clean("D:/portable/project/jobs") {
 		t.Fatalf("expected env jobs root, got %s", config.JobsRoot)
 	}
-	if config.GPUSchedulerPath != "D:/portable/gpu-scheduler.exe" {
+	if config.GPUSchedulerPath != filepath.Clean("D:/portable/gpu-scheduler.exe") {
 		t.Fatalf("expected env gpu scheduler, got %s", config.GPUSchedulerPath)
 	}
-	if config.GPURequestDoc != "D:/portable/gpu-resource-requests.md" {
+	if config.GPURequestDoc != filepath.Clean("D:/portable/gpu-resource-requests.md") {
 		t.Fatalf("expected env gpu request doc, got %s", config.GPURequestDoc)
 	}
 	if config.GPUAgentPrefix != "portable-api" {
@@ -95,25 +125,31 @@ func TestParseConfigReadsEnvironmentDefaults(t *testing.T) {
 	}
 }
 
-func TestDetectProjectRootFromToolDirectory(t *testing.T) {
-	input := filepath.Clean(`D:\Code\DiffAudit\Services\Local-API`)
-	expected := filepath.Clean(`D:\Code\DiffAudit\Project`)
-
-	actual := detectProjectRoot(input)
-
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+func TestParseConfigDerivesProjectChildrenOnlyFromExplicitProjectRoot(t *testing.T) {
+	config, err := parseConfig([]string{
+		"--project-root", `D:\Code\DiffAudit\Project`,
+	})
+	if err != nil {
+		t.Fatalf("parseConfig returned error: %v", err)
 	}
-}
 
-func TestDetectLocalOpsRootFromProjectRoot(t *testing.T) {
-	projectRoot := filepath.Clean(`D:\Code\DiffAudit\Project`)
-	expected := filepath.Clean(`D:\Code\DiffAudit\LocalOps`)
-
-	actual := detectLocalOpsRoot(projectRoot)
-
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+	if config.ProjectRoot != filepath.Clean(`D:\Code\DiffAudit\Project`) {
+		t.Fatalf("expected explicit project root, got %s", config.ProjectRoot)
+	}
+	if config.ExperimentsRoot != filepath.Clean(`D:\Code\DiffAudit\Project\experiments`) {
+		t.Fatalf("expected derived experiments root, got %s", config.ExperimentsRoot)
+	}
+	if config.JobsRoot != filepath.Clean(`D:\Code\DiffAudit\Project\workspaces\local-api\jobs`) {
+		t.Fatalf("expected derived jobs root, got %s", config.JobsRoot)
+	}
+	if config.RepoRoot != "" {
+		t.Fatalf("expected repo root to stay explicit, got %s", config.RepoRoot)
+	}
+	if config.GPUSchedulerPath != "" {
+		t.Fatalf("expected gpu scheduler path to stay explicit, got %s", config.GPUSchedulerPath)
+	}
+	if config.GPURequestDoc != "" {
+		t.Fatalf("expected gpu request doc to stay explicit, got %s", config.GPURequestDoc)
 	}
 }
 
@@ -122,6 +158,7 @@ func TestStartupLogLinesIncludeResolvedPaths(t *testing.T) {
 		Host:             "0.0.0.0",
 		Port:             "8765",
 		ProjectRoot:      `D:\Code\DiffAudit\Project`,
+		RepoRoot:         `D:\Code\DiffAudit\Project\external\Reconstruction-based-Attack`,
 		ExperimentsRoot:  `D:\Code\DiffAudit\Project\experiments`,
 		JobsRoot:         `D:\Code\DiffAudit\Project\workspaces\local-api\jobs`,
 		GPUSchedulerPath: `D:\Code\DiffAudit\LocalOps\paper-resource-scheduler\gpu-scheduler.exe`,
@@ -135,6 +172,7 @@ func TestStartupLogLinesIncludeResolvedPaths(t *testing.T) {
 	for _, want := range []string{
 		"listen=0.0.0.0:8765",
 		"project_root=D:\\Code\\DiffAudit\\Project",
+		"repo_root=D:\\Code\\DiffAudit\\Project\\external\\Reconstruction-based-Attack",
 		"experiments_root=D:\\Code\\DiffAudit\\Project\\experiments",
 		"jobs_root=D:\\Code\\DiffAudit\\Project\\workspaces\\local-api\\jobs",
 		"gpu_scheduler=D:\\Code\\DiffAudit\\LocalOps\\paper-resource-scheduler\\gpu-scheduler.exe",

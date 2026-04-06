@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ type Config struct {
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
+	RepoRoot         string
 	AutoStartJobs    bool
 	Executor         func(payload auditJobCreate, workspacePath string) error
 	ExecCommand      func(command []string, dir string) ([]byte, error)
@@ -66,6 +68,14 @@ type modelOption struct {
 	Scheduler    *string `json:"scheduler"`
 }
 
+type configError struct {
+	message string
+}
+
+func (err configError) Error() string {
+	return err.message
+}
+
 var models = []modelOption{
 	{
 		Key:          "sd15-ddim",
@@ -102,9 +112,6 @@ func stringPtr(value string) *string {
 }
 
 func NewServer(config Config) *Server {
-	if config.ProjectRoot == "" {
-		config.ProjectRoot = defaultProjectRoot()
-	}
 	if config.GPUAgentPrefix == "" {
 		config.GPUAgentPrefix = "local-api"
 	}
@@ -176,7 +183,7 @@ func (s *Server) handleModels(writer http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {
 	summaryPath, err := s.bestReconSummaryPath()
 	if err != nil {
-		writeError(writer, http.StatusNotFound, err.Error())
+		writeError(writer, statusCodeForError(err, http.StatusNotFound), err.Error())
 		return
 	}
 	s.handleSummaryPath(writer, summaryPath)
@@ -188,14 +195,19 @@ func (s *Server) handleWorkspaceSummary(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusBadRequest, "workspace is required")
 		return
 	}
-	summaryPath := filepath.Join(s.config.ExperimentsRoot, workspace, "summary.json")
+	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "read experiment summaries")
+	if err != nil {
+		writeError(writer, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	summaryPath := filepath.Join(experimentsRoot, workspace, "summary.json")
 	s.handleSummaryPath(writer, summaryPath)
 }
 
 func (s *Server) handleListJobs(writer http.ResponseWriter, _ *http.Request) {
 	jobs, err := s.listJobs()
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
+		writeError(writer, statusCodeForError(err, http.StatusInternalServerError), err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusOK, jobs)
@@ -213,7 +225,7 @@ func (s *Server) handleCreateJob(writer http.ResponseWriter, request *http.Reque
 	}
 	hasActive, err := s.hasActiveWorkspaceJob(payload.WorkspaceName)
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
+		writeError(writer, statusCodeForError(err, http.StatusInternalServerError), err.Error())
 		return
 	}
 	if hasActive {
@@ -238,7 +250,7 @@ func (s *Server) handleCreateJob(writer http.ResponseWriter, request *http.Reque
 		StderrTail:    nil,
 	}
 	if err := s.writeJob(record); err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
+		writeError(writer, statusCodeForError(err, http.StatusInternalServerError), err.Error())
 		return
 	}
 	if s.config.AutoStartJobs {
@@ -251,7 +263,7 @@ func (s *Server) handleGetJob(writer http.ResponseWriter, request *http.Request)
 	jobID := request.PathValue("jobID")
 	record, err := s.readJob(jobID)
 	if err != nil {
-		writeError(writer, http.StatusNotFound, err.Error())
+		writeError(writer, statusCodeForError(err, http.StatusNotFound), err.Error())
 		return
 	}
 	writeJSON(writer, http.StatusOK, record)
@@ -267,7 +279,11 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 }
 
 func (s *Server) bestReconSummaryPath() (string, error) {
-	statusPath := filepath.Join(s.config.ExperimentsRoot, "blackbox-status", "summary.json")
+	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "read experiment summaries")
+	if err != nil {
+		return "", err
+	}
+	statusPath := filepath.Join(experimentsRoot, "blackbox-status", "summary.json")
 	if payload, err := readJSONFile(statusPath); err == nil {
 		methods, ok := payload["methods"].(map[string]any)
 		if ok {
@@ -283,7 +299,7 @@ func (s *Server) bestReconSummaryPath() (string, error) {
 		}
 	}
 
-	pattern := filepath.Join(s.config.ExperimentsRoot, "*", "summary.json")
+	pattern := filepath.Join(experimentsRoot, "*", "summary.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err
@@ -388,13 +404,13 @@ func validateCreatePayload(payload auditJobCreate) error {
 	return nil
 }
 
-func (s *Server) jobsGlob() string {
-	return filepath.Join(s.config.JobsRoot, "*.json")
-}
-
 func (s *Server) readJob(jobID string) (auditJobRecord, error) {
 	var record auditJobRecord
-	path := filepath.Join(s.config.JobsRoot, jobID+".json")
+	jobsRoot, err := requireConfigPath("jobs_root", s.config.JobsRoot, "manage audit jobs")
+	if err != nil {
+		return record, err
+	}
+	path := filepath.Join(jobsRoot, jobID+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return record, err
@@ -406,18 +422,26 @@ func (s *Server) readJob(jobID string) (auditJobRecord, error) {
 }
 
 func (s *Server) writeJob(record auditJobRecord) error {
-	if err := os.MkdirAll(s.config.JobsRoot, 0o755); err != nil {
+	jobsRoot, err := requireConfigPath("jobs_root", s.config.JobsRoot, "manage audit jobs")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(jobsRoot, 0o755); err != nil {
 		return err
 	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.config.JobsRoot, record.JobID+".json"), data, 0o644)
+	return os.WriteFile(filepath.Join(jobsRoot, record.JobID+".json"), data, 0o644)
 }
 
 func (s *Server) listJobs() ([]auditJobRecord, error) {
-	matches, err := filepath.Glob(s.jobsGlob())
+	jobsRoot, err := requireConfigPath("jobs_root", s.config.JobsRoot, "manage audit jobs")
+	if err != nil {
+		return nil, err
+	}
+	matches, err := filepath.Glob(filepath.Join(jobsRoot, "*.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -468,12 +492,20 @@ func writeError(writer http.ResponseWriter, statusCode int, detail string) {
 	writeJSON(writer, statusCode, map[string]any{"detail": detail})
 }
 
-func defaultProjectRoot() string {
-	current, err := os.Getwd()
-	if err != nil {
-		return ""
+func requireConfigPath(name, value, purpose string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", configError{message: fmt.Sprintf("%s is required to %s", name, purpose)}
 	}
-	return filepath.Clean(filepath.Join(current, "..", ".."))
+	return value, nil
+}
+
+func statusCodeForError(err error, defaultStatus int) int {
+	var cfgErr configError
+	if errors.As(err, &cfgErr) {
+		return http.StatusServiceUnavailable
+	}
+	return defaultStatus
 }
 
 func (s *Server) runJob(record auditJobRecord) {
@@ -481,7 +513,12 @@ func (s *Server) runJob(record auditJobRecord) {
 	record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	_ = s.writeJob(record)
 
-	workspacePath := filepath.Join(s.config.ExperimentsRoot, record.WorkspaceName)
+	experimentsRoot, err := requireConfigPath("experiments_root", s.config.ExperimentsRoot, "execute audit jobs")
+	if err != nil {
+		s.failJob(record, err)
+		return
+	}
+	workspacePath := filepath.Join(experimentsRoot, record.WorkspaceName)
 	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
 		s.failJob(record, err)
 		return
@@ -522,6 +559,14 @@ func (s *Server) failJob(record auditJobRecord, err error) {
 }
 
 func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) error {
+	projectRoot, err := requireConfigPath("project_root", s.config.ProjectRoot, "execute audit jobs")
+	if err != nil {
+		return err
+	}
+	repoRoot, err := s.resolveRepoRoot(payload)
+	if err != nil {
+		return err
+	}
 	if shouldRequestGPU(payload) {
 		agent := s.config.GPUAgentPrefix + "-" + payload.WorkspaceName
 		release, err := s.acquireGPU(agent)
@@ -533,7 +578,7 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 		}
 	}
 
-	command := s.pythonCommand(payload, workspacePath)
+	command := s.pythonCommand(payload, workspacePath, repoRoot)
 	if len(command) == 0 {
 		return errors.New("empty job command")
 	}
@@ -541,7 +586,7 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 	if execFn == nil {
 		execFn = defaultExecCommand
 	}
-	output, err := execFn(command, s.config.ProjectRoot)
+	output, err := execFn(command, projectRoot)
 	if err != nil {
 		if len(output) > 0 {
 			return errors.New(strings.TrimSpace(string(output)))
@@ -565,61 +610,70 @@ func (s *Server) acquireGPU(agent string) (func(), error) {
 	if s.config.AcquireGPU != nil {
 		return s.config.AcquireGPU(agent)
 	}
-	if s.config.GPUSchedulerPath == "" || s.config.GPURequestDoc == "" {
-		return nil, nil
+	projectRoot, err := requireConfigPath("project_root", s.config.ProjectRoot, "execute audit jobs")
+	if err != nil {
+		return nil, err
+	}
+	gpuSchedulerPath := strings.TrimSpace(s.config.GPUSchedulerPath)
+	gpuRequestDoc := strings.TrimSpace(s.config.GPURequestDoc)
+	if gpuSchedulerPath == "" || gpuRequestDoc == "" {
+		return nil, configError{message: "gpu_scheduler and gpu_request_doc are required for GPU jobs"}
 	}
 
 	requested := exec.Command(
-		s.config.GPUSchedulerPath,
+		gpuSchedulerPath,
 		"set-request",
-		"--doc", s.config.GPURequestDoc,
+		"--doc", gpuRequestDoc,
 		"--agent", agent,
 		"--category", "model",
 		"--state", "requested",
 		"--resource", "gpu",
 		"--note", "local-api job",
 	)
-	requested.Dir = s.config.ProjectRoot
+	requested.Dir = projectRoot
 	if output, err := requested.CombinedOutput(); err != nil {
 		return nil, errors.New(strings.TrimSpace(string(output)))
 	}
 
 	running := exec.Command(
-		s.config.GPUSchedulerPath,
+		gpuSchedulerPath,
 		"set-request",
-		"--doc", s.config.GPURequestDoc,
+		"--doc", gpuRequestDoc,
 		"--agent", agent,
 		"--category", "model",
 		"--state", "running",
 		"--resource", "gpu",
 		"--note", "local-api job",
 	)
-	running.Dir = s.config.ProjectRoot
+	running.Dir = projectRoot
 	if output, err := running.CombinedOutput(); err != nil {
 		return nil, errors.New(strings.TrimSpace(string(output)))
 	}
 
 	return func() {
 		release := exec.Command(
-			s.config.GPUSchedulerPath,
+			gpuSchedulerPath,
 			"release-request",
-			"--doc", s.config.GPURequestDoc,
+			"--doc", gpuRequestDoc,
 			"--agent", agent,
 			"--resource", "gpu",
 		)
-		release.Dir = s.config.ProjectRoot
+		release.Dir = projectRoot
 		_, _ = release.CombinedOutput()
 	}, nil
 }
 
-func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string) []string {
+func (s *Server) resolveRepoRoot(payload auditJobCreate) (string, error) {
+	if repoRoot := strings.TrimSpace(payload.RepoRoot); repoRoot != "" {
+		return repoRoot, nil
+	}
+	return requireConfigPath("repo_root", s.config.RepoRoot, "execute audit jobs")
+}
+
+func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, repoRoot string) []string {
 	method := payload.Method
 	if method == "" {
 		method = "threshold"
-	}
-	repoRoot := payload.RepoRoot
-	if repoRoot == "" {
-		repoRoot = filepath.Join(s.config.ProjectRoot, "external", "Reconstruction-based-Attack")
 	}
 	if payload.JobType == "recon_artifact_mainline" {
 		return []string{
