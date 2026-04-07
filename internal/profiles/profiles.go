@@ -63,7 +63,7 @@ func buildReconArtifactMainlineSpec(request JobRequest) (runtime.ExecutionSpec, 
 	}
 	method := inputOrDefault(request.Inputs, "method", "threshold")
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newRunnerDockerPlan(request.WorkspacePath)
+		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   reconImage,
 			WorkDir: "/runner",
@@ -113,12 +113,12 @@ func buildReconRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, e
 	backend := inputOrDefault(request.Inputs, "backend", "stable_diffusion")
 	scheduler := inputOrDefault(request.Inputs, "scheduler", "default")
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newRunnerDockerPlan(request.WorkspacePath)
+		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   reconImage,
-			WorkDir: "/runner",
+			WorkDir: plan.containerProjectRoot,
 			Command: []string{
-				"run-recon-runtime-mainline",
+				"python", "-m", "diffaudit", "run-recon-runtime-mainline",
 				"--workspace", plan.containerWorkspaceRoot,
 				"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
 				"--target-member-dataset", plan.containerPath("target_member_dataset", inputString(request.Inputs, "target_member_dataset")),
@@ -138,9 +138,9 @@ func buildReconRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, e
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ServiceRoot,
+		WorkDir: request.ProjectRoot,
 		Command: []string{
-			"python", runnerScript(request, "recon-runner"), "run-recon-runtime-mainline",
+			"python", "-m", "diffaudit", "run-recon-runtime-mainline",
 			"--workspace", request.WorkspacePath,
 			"--repo-root", request.RepoRoot,
 			"--target-member-dataset", inputString(request.Inputs, "target_member_dataset"),
@@ -168,7 +168,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 	device := inputOrDefault(request.Inputs, "device", "cpu")
 	provenanceStatus := inputOrDefault(request.Inputs, "provenance_status", "source-retained-unverified")
 	command := []string{
-		"python", runnerScript(request, "pia-runner"), "run-pia-runtime-mainline",
+		"python", "-m", "diffaudit", "run-pia-runtime-mainline",
 		"--config", configPath,
 		"--workspace", request.WorkspacePath,
 		"--repo-root", request.RepoRoot,
@@ -186,9 +186,9 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		command = append(command, "--stochastic-dropout-defense")
 	}
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newRunnerDockerPlan(request.WorkspacePath)
+		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
 		dockerCommand := []string{
-			"run-pia-runtime-mainline",
+			"python", "-m", "diffaudit", "run-pia-runtime-mainline",
 			"--config", plan.containerPath("config", configPath),
 			"--workspace", plan.containerWorkspaceRoot,
 			"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
@@ -207,7 +207,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}
 		return runtime.ExecutionSpec{
 			Image:   piaImage,
-			WorkDir: "/runner",
+			WorkDir: plan.containerProjectRoot,
 			Command: dockerCommand,
 			Env: map[string]string{
 				"PYTHONUNBUFFERED": "1",
@@ -216,7 +216,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ServiceRoot,
+		WorkDir: request.ProjectRoot,
 		Command: command,
 		Env: map[string]string{
 			"PYTHONUNBUFFERED": "1",
@@ -230,7 +230,7 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		return runtime.ExecutionSpec{}, errors.New("gsa_runtime_mainline requires assets_root")
 	}
 	command := []string{
-		"python", runnerScript(request, "gsa-runner"), "run-gsa-runtime-mainline",
+		"python", "-m", "diffaudit", "run-gsa-runtime-mainline",
 		"--workspace", request.WorkspacePath,
 		"--repo-root", request.RepoRoot,
 		"--assets-root", assetsRoot,
@@ -242,12 +242,12 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		"--provenance-status", inputOrDefault(request.Inputs, "provenance_status", "workspace-verified"),
 	}
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newRunnerDockerPlan(request.WorkspacePath)
+		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   gsaImage,
-			WorkDir: "/runner",
+			WorkDir: plan.containerProjectRoot,
 			Command: []string{
-				"run-gsa-runtime-mainline",
+				"python", "-m", "diffaudit", "run-gsa-runtime-mainline",
 				"--workspace", plan.containerWorkspaceRoot,
 				"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
 				"--assets-root", plan.containerPath("assets_root", assetsRoot),
@@ -265,7 +265,7 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ServiceRoot,
+		WorkDir: request.ProjectRoot,
 		Command: command,
 		Env: map[string]string{
 			"PYTHONUNBUFFERED": "1",
@@ -313,16 +313,25 @@ func inputBool(inputs map[string]any, key string) bool {
 }
 
 type dockerPlan struct {
+	projectRoot            string
 	workspacePath          string
+	containerProjectRoot   string
 	containerWorkspaceRoot string
 	mountMap               map[string]runtime.Mount
 }
 
-func newRunnerDockerPlan(workspacePath string) *dockerPlan {
+func newDockerPlan(projectRoot string, workspacePath string) *dockerPlan {
 	plan := &dockerPlan{
+		projectRoot:            filepath.Clean(projectRoot),
 		workspacePath:          filepath.Clean(workspacePath),
+		containerProjectRoot:   "/workspace/project",
 		containerWorkspaceRoot: "/job/output",
 		mountMap:               map[string]runtime.Mount{},
+	}
+	plan.mountMap["project-root"] = runtime.Mount{
+		Source:   plan.projectRoot,
+		Target:   plan.containerProjectRoot,
+		ReadOnly: true,
 	}
 	plan.mountMap["workspace-root"] = runtime.Mount{
 		Source:   plan.workspacePath,
@@ -336,6 +345,9 @@ func (p *dockerPlan) containerPath(label string, hostPath string) string {
 	cleaned := filepath.Clean(hostPath)
 	if cleaned == p.workspacePath {
 		return p.containerWorkspaceRoot
+	}
+	if rel, err := filepath.Rel(p.projectRoot, cleaned); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(filepath.Join(p.containerProjectRoot, rel))
 	}
 	target := "/job/inputs/" + sanitizeLabel(label)
 	p.mountMap[label] = runtime.Mount{

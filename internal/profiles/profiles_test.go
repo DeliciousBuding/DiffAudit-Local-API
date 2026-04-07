@@ -40,7 +40,6 @@ func TestBuildPiaRuntimeMainlineSpecForDockerRuntime(t *testing.T) {
 	spec, err := BuildSpec(JobRequest{
 		JobType:       "pia_runtime_mainline",
 		RuntimeTarget: RuntimeTargetDocker,
-		ServiceRoot:   "D:/Code/DiffAudit/Services/Local-API",
 		ProjectRoot:   "D:/Code/DiffAudit/Project",
 		RepoRoot:      "D:/Code/DiffAudit/Project/external/PIA",
 		WorkspacePath: "D:/Code/DiffAudit/Project/workspaces/local-api/jobs/job-001/output",
@@ -67,18 +66,12 @@ func TestBuildPiaRuntimeMainlineSpecForDockerRuntime(t *testing.T) {
 	if len(spec.Mounts) == 0 {
 		t.Fatal("expected docker runtime spec to include mounts")
 	}
-	for _, mount := range spec.Mounts {
-		if strings.Contains(mount.Target, "/workspace/project") {
-			t.Fatalf("did not expect docker runtime to mount project source tree, got %+v", mount)
-		}
-	}
 }
 
 func TestBuildGsaRuntimeMainlineSpecForDockerRuntime(t *testing.T) {
 	spec, err := BuildSpec(JobRequest{
 		JobType:       "gsa_runtime_mainline",
 		RuntimeTarget: RuntimeTargetDocker,
-		ServiceRoot:   "D:/Code/DiffAudit/Services/Local-API",
 		ProjectRoot:   "D:/Code/DiffAudit/Project",
 		RepoRoot:      "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
 		WorkspacePath: "D:/Code/DiffAudit/Project/workspaces/local-api/jobs/job-002/output",
@@ -103,8 +96,5 @@ func TestBuildGsaRuntimeMainlineSpecForDockerRuntime(t *testing.T) {
 		if !strings.Contains(commandLine, want) {
 			t.Fatalf("expected gsa command to contain %q, got %v", want, spec.Command)
 		}
-	}
-	if strings.Contains(commandLine, "python\n-m\ndiffaudit") {
-		t.Fatalf("expected docker runtime to rely on runner entrypoint instead of project module, got %v", spec.Command)
 	}
 }

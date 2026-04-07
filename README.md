@@ -289,6 +289,7 @@ Job observability note:
 - the service now resolves an execution spec before running any job
 - `local` mode executes the resolved command directly on the host
 - `docker` mode wraps the same execution spec in a `docker run` command
+- `GET /diagnostics` now reports `service_root`, `runners_root`, and per-runner script/dockerfile presence
 - failure records still persist `command`, `output_capture`, and `output_tail`
 - the current default error path still treats combined output as the
   authoritative fallback stream
@@ -297,6 +298,8 @@ Job observability note:
 
 - `DIFFAUDIT_LOCAL_API_HOST`
 - `DIFFAUDIT_LOCAL_API_PORT`
+- `DIFFAUDIT_LOCAL_API_SERVICE_ROOT`
+- `DIFFAUDIT_LOCAL_API_RUNNERS_ROOT`
 - `DIFFAUDIT_LOCAL_API_PROJECT_ROOT`
 - `DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT`
 - `DIFFAUDIT_LOCAL_API_JOBS_ROOT`
@@ -318,10 +321,10 @@ This repository uses a minimal release gate in
 `.github/workflows/release.yml`:
 
 - Pull requests and pushes to `main` run `go test ./...` and a Linux
-  `go build ./cmd/local-api` check.
+  `go build ./cmd/local-api` check, plus runner Dockerfile builds.
 - Tags matching `v*` run the same verification, build a Linux `amd64` release
   binary, generate a SHA256 checksum, attach both files to the GitHub Release,
-  and validate the Docker image with `docker build`.
+  and validate the Local-API + runner Docker images with `docker build`.
 
 Release flow:
 

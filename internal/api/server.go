@@ -211,6 +211,7 @@ func (s *Server) handleDiagnostics(writer http.ResponseWriter, _ *http.Request) 
 			"project_root":     describePath(s.config.ProjectRoot),
 			"repo_root":        describePath(s.config.RepoRoot),
 		},
+		"runners": describeRunners(strings.TrimSpace(s.config.RunnersRoot)),
 	})
 }
 
@@ -734,6 +735,40 @@ func describePath(path string) map[string]any {
 		"path":   trimmed,
 		"exists": err == nil,
 	}
+}
+
+func describeRunners(runnersRoot string) map[string]any {
+	result := map[string]any{
+		"root": describePath(runnersRoot),
+	}
+	runners := []struct {
+		key        string
+		scriptPath string
+		dockerfile string
+	}{
+		{
+			key:        "recon",
+			scriptPath: filepath.Join(runnersRoot, "recon-runner", "run.py"),
+			dockerfile: filepath.Join(runnersRoot, "recon-runner", "Dockerfile"),
+		},
+		{
+			key:        "pia",
+			scriptPath: filepath.Join(runnersRoot, "pia-runner", "run.py"),
+			dockerfile: filepath.Join(runnersRoot, "pia-runner", "Dockerfile"),
+		},
+		{
+			key:        "gsa",
+			scriptPath: filepath.Join(runnersRoot, "gsa-runner", "run.py"),
+			dockerfile: filepath.Join(runnersRoot, "gsa-runner", "Dockerfile"),
+		},
+	}
+	for _, runner := range runners {
+		result[runner.key] = map[string]any{
+			"script":     describePath(runner.scriptPath),
+			"dockerfile": describePath(runner.dockerfile),
+		}
+	}
+	return result
 }
 
 func statusCodeForError(err error, defaultStatus int) int {

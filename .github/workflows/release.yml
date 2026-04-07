@@ -33,6 +33,12 @@ jobs:
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
             go build -trimpath -ldflags="-s -w" -o dist/local-api-linux-amd64 ./cmd/local-api
 
+      - name: Build runner images
+        run: |
+          docker build --tag diffaudit/recon-runner:ci -f runners/recon-runner/Dockerfile .
+          docker build --tag diffaudit/pia-runner:ci -f runners/pia-runner/Dockerfile .
+          docker build --tag diffaudit/gsa-runner:ci -f runners/gsa-runner/Dockerfile .
+
       - name: Write SHA256 checksum
         run: sha256sum dist/local-api-linux-amd64 > dist/local-api-linux-amd64.sha256
 
@@ -84,4 +90,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build --tag diffaudit-local-api:${{ github.ref_name }} .
+        run: |
+          docker build --tag diffaudit-local-api:${{ github.ref_name }} .
+          docker build --tag diffaudit/recon-runner:${{ github.ref_name }} -f runners/recon-runner/Dockerfile .
+          docker build --tag diffaudit/pia-runner:${{ github.ref_name }} -f runners/pia-runner/Dockerfile .
+          docker build --tag diffaudit/gsa-runner:${{ github.ref_name }} -f runners/gsa-runner/Dockerfile .

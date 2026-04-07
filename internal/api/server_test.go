@@ -91,16 +91,40 @@ func TestHealthEndpoint(t *testing.T) {
 
 func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 	root := t.TempDir()
+	serviceRoot := filepath.Join(root, "service")
+	runnersRoot := filepath.Join(serviceRoot, "runners")
 	experiments := filepath.Join(root, "experiments")
 	jobs := filepath.Join(root, "jobs")
 	project := filepath.Join(root, "project")
 	repo := filepath.Join(root, "repo")
-	for _, path := range []string{experiments, jobs, project, repo} {
+	for _, path := range []string{
+		experiments,
+		jobs,
+		project,
+		repo,
+		filepath.Join(runnersRoot, "recon-runner"),
+		filepath.Join(runnersRoot, "pia-runner"),
+		filepath.Join(runnersRoot, "gsa-runner"),
+	} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatalf("mkdir failed: %v", err)
 		}
 	}
+	for _, file := range []string{
+		filepath.Join(runnersRoot, "recon-runner", "run.py"),
+		filepath.Join(runnersRoot, "recon-runner", "Dockerfile"),
+		filepath.Join(runnersRoot, "pia-runner", "run.py"),
+		filepath.Join(runnersRoot, "pia-runner", "Dockerfile"),
+		filepath.Join(runnersRoot, "gsa-runner", "run.py"),
+		filepath.Join(runnersRoot, "gsa-runner", "Dockerfile"),
+	} {
+		if err := os.WriteFile(file, []byte("ok"), 0o644); err != nil {
+			t.Fatalf("write failed: %v", err)
+		}
+	}
 	server := NewServer(Config{
+		ServiceRoot:      serviceRoot,
+		RunnersRoot:      runnersRoot,
 		ExperimentsRoot:  experiments,
 		JobsRoot:         jobs,
 		ProjectRoot:      project,
@@ -146,6 +170,21 @@ func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 	checkPath("jobs_root", jobs)
 	checkPath("project_root", project)
 	checkPath("repo_root", repo)
+	checkPath("service_root", serviceRoot)
+	checkPath("runners_root", runnersRoot)
+
+	runners, ok := payload["runners"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected runners map, got %T", payload["runners"])
+	}
+	recon, ok := runners["recon"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected recon runner map, got %T", runners["recon"])
+	}
+	script, ok := recon["script"].(map[string]any)
+	if !ok || script["exists"] != true {
+		t.Fatalf("expected recon runner script to exist, got %v", recon["script"])
+	}
 }
 
 func TestRequestLoggingMiddlewareRecordsMethodPathAndStatus(t *testing.T) {
@@ -1400,7 +1439,7 @@ func TestPlannedJobCommandUsesPayloadRuntimeProfile(t *testing.T) {
 		"docker",
 		"diffaudit/gsa-runner:latest",
 		"run-gsa-runtime-mainline",
-		"/job/inputs/assets-root",
+		"/workspace/project/workspaces/white-box/assets/gsa",
 	} {
 		if !strings.Contains(commandLine, want) {
 			t.Fatalf("expected payload-selected docker command to contain %q, got %v", want, command)
