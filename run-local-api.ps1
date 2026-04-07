@@ -5,6 +5,7 @@ param(
     [string]$ProjectRoot,
     [string]$ExperimentsRoot,
     [string]$JobsRoot,
+    [string]$RunnersRoot,
     [string]$GpuScheduler,
     [string]$GpuRequestDoc,
     [string]$GpuAgentPrefix = "local-api"
@@ -79,6 +80,14 @@ if (-not $ProjectRoot) {
     $ProjectRoot = Join-Path $workspaceRoot "Project"
 }
 
+if (-not $RunnersRoot) {
+    $RunnersRoot = $env:DIFFAUDIT_LOCAL_API_RUNNERS_ROOT
+}
+
+if (-not $RunnersRoot) {
+    $RunnersRoot = Join-Path $serviceRoot "runners"
+}
+
 if (-not $ExperimentsRoot) {
     $ExperimentsRoot = $env:DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT
 }
@@ -138,6 +147,7 @@ Write-LogLine "INFO" "Listen address: $ListenHost`:$ListenPort" Green
 
 Write-Section "Resolved Paths"
 Write-LogLine "INFO" "Project root: $ProjectRoot"
+Write-LogLine "INFO" "Runners root: $RunnersRoot"
 Write-LogLine "INFO" "Experiments root: $ExperimentsRoot"
 Write-LogLine "INFO" "Jobs root: $JobsRoot"
 Write-LogLine "INFO" "GPU scheduler: $GpuScheduler"
@@ -152,6 +162,8 @@ try {
     go run ./cmd/local-api `
         --host $ListenHost `
         --port $ListenPort `
+        --service-root $serviceRoot `
+        --runners-root $RunnersRoot `
         --project-root $ProjectRoot `
         --experiments-root $ExperimentsRoot `
         --jobs-root $JobsRoot `

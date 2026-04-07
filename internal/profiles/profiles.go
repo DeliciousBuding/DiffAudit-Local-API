@@ -19,6 +19,8 @@ const (
 type JobRequest struct {
 	JobType       string
 	RuntimeTarget RuntimeTarget
+	ServiceRoot   string
+	RunnersRoot   string
 	ProjectRoot   string
 	RepoRoot      string
 	WorkspacePath string
@@ -30,6 +32,14 @@ const (
 	piaImage   = "diffaudit/pia-runner:latest"
 	gsaImage   = "diffaudit/gsa-runner:latest"
 )
+
+func runnerScript(request JobRequest, runnerName string) string {
+	root := strings.TrimSpace(request.RunnersRoot)
+	if root == "" {
+		root = filepath.Join(request.ServiceRoot, "runners")
+	}
+	return filepath.Join(root, runnerName, "run.py")
+}
 
 func BuildSpec(request JobRequest) (runtime.ExecutionSpec, error) {
 	switch request.JobType {
@@ -53,12 +63,12 @@ func buildReconArtifactMainlineSpec(request JobRequest) (runtime.ExecutionSpec, 
 	}
 	method := inputOrDefault(request.Inputs, "method", "threshold")
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
+		plan := newRunnerDockerPlan(request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   reconImage,
-			WorkDir: plan.containerProjectRoot,
+			WorkDir: "/runner",
 			Command: []string{
-				"python", "-m", "diffaudit", "run-recon-artifact-mainline",
+				"run-recon-artifact-mainline",
 				"--artifact-dir", plan.containerPath("artifact_dir", artifactDir),
 				"--workspace", plan.containerWorkspaceRoot,
 				"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
@@ -71,9 +81,9 @@ func buildReconArtifactMainlineSpec(request JobRequest) (runtime.ExecutionSpec, 
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ProjectRoot,
+		WorkDir: request.ServiceRoot,
 		Command: []string{
-			"python", "-m", "diffaudit", "run-recon-artifact-mainline",
+			"python", runnerScript(request, "recon-runner"), "run-recon-artifact-mainline",
 			"--artifact-dir", artifactDir,
 			"--workspace", request.WorkspacePath,
 			"--repo-root", request.RepoRoot,
@@ -103,12 +113,12 @@ func buildReconRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, e
 	backend := inputOrDefault(request.Inputs, "backend", "stable_diffusion")
 	scheduler := inputOrDefault(request.Inputs, "scheduler", "default")
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
+		plan := newRunnerDockerPlan(request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   reconImage,
-			WorkDir: plan.containerProjectRoot,
+			WorkDir: "/runner",
 			Command: []string{
-				"python", "-m", "diffaudit", "run-recon-runtime-mainline",
+				"run-recon-runtime-mainline",
 				"--workspace", plan.containerWorkspaceRoot,
 				"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
 				"--target-member-dataset", plan.containerPath("target_member_dataset", inputString(request.Inputs, "target_member_dataset")),
@@ -128,9 +138,9 @@ func buildReconRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, e
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ProjectRoot,
+		WorkDir: request.ServiceRoot,
 		Command: []string{
-			"python", "-m", "diffaudit", "run-recon-runtime-mainline",
+			"python", runnerScript(request, "recon-runner"), "run-recon-runtime-mainline",
 			"--workspace", request.WorkspacePath,
 			"--repo-root", request.RepoRoot,
 			"--target-member-dataset", inputString(request.Inputs, "target_member_dataset"),
@@ -158,7 +168,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 	device := inputOrDefault(request.Inputs, "device", "cpu")
 	provenanceStatus := inputOrDefault(request.Inputs, "provenance_status", "source-retained-unverified")
 	command := []string{
-		"python", "-m", "diffaudit", "run-pia-runtime-mainline",
+		"python", runnerScript(request, "pia-runner"), "run-pia-runtime-mainline",
 		"--config", configPath,
 		"--workspace", request.WorkspacePath,
 		"--repo-root", request.RepoRoot,
@@ -176,9 +186,9 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		command = append(command, "--stochastic-dropout-defense")
 	}
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
+		plan := newRunnerDockerPlan(request.WorkspacePath)
 		dockerCommand := []string{
-			"python", "-m", "diffaudit", "run-pia-runtime-mainline",
+			"run-pia-runtime-mainline",
 			"--config", plan.containerPath("config", configPath),
 			"--workspace", plan.containerWorkspaceRoot,
 			"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
@@ -197,7 +207,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}
 		return runtime.ExecutionSpec{
 			Image:   piaImage,
-			WorkDir: plan.containerProjectRoot,
+			WorkDir: "/runner",
 			Command: dockerCommand,
 			Env: map[string]string{
 				"PYTHONUNBUFFERED": "1",
@@ -206,7 +216,7 @@ func buildPiaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ProjectRoot,
+		WorkDir: request.ServiceRoot,
 		Command: command,
 		Env: map[string]string{
 			"PYTHONUNBUFFERED": "1",
@@ -220,7 +230,7 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		return runtime.ExecutionSpec{}, errors.New("gsa_runtime_mainline requires assets_root")
 	}
 	command := []string{
-		"python", "-m", "diffaudit", "run-gsa-runtime-mainline",
+		"python", runnerScript(request, "gsa-runner"), "run-gsa-runtime-mainline",
 		"--workspace", request.WorkspacePath,
 		"--repo-root", request.RepoRoot,
 		"--assets-root", assetsRoot,
@@ -232,12 +242,12 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		"--provenance-status", inputOrDefault(request.Inputs, "provenance_status", "workspace-verified"),
 	}
 	if request.RuntimeTarget == RuntimeTargetDocker {
-		plan := newDockerPlan(request.ProjectRoot, request.WorkspacePath)
+		plan := newRunnerDockerPlan(request.WorkspacePath)
 		return runtime.ExecutionSpec{
 			Image:   gsaImage,
-			WorkDir: plan.containerProjectRoot,
+			WorkDir: "/runner",
 			Command: []string{
-				"python", "-m", "diffaudit", "run-gsa-runtime-mainline",
+				"run-gsa-runtime-mainline",
 				"--workspace", plan.containerWorkspaceRoot,
 				"--repo-root", plan.containerPath("repo_root", request.RepoRoot),
 				"--assets-root", plan.containerPath("assets_root", assetsRoot),
@@ -255,7 +265,7 @@ func buildGsaRuntimeMainlineSpec(request JobRequest) (runtime.ExecutionSpec, err
 		}, nil
 	}
 	return runtime.ExecutionSpec{
-		WorkDir: request.ProjectRoot,
+		WorkDir: request.ServiceRoot,
 		Command: command,
 		Env: map[string]string{
 			"PYTHONUNBUFFERED": "1",
@@ -303,25 +313,16 @@ func inputBool(inputs map[string]any, key string) bool {
 }
 
 type dockerPlan struct {
-	projectRoot            string
 	workspacePath          string
-	containerProjectRoot   string
 	containerWorkspaceRoot string
 	mountMap               map[string]runtime.Mount
 }
 
-func newDockerPlan(projectRoot string, workspacePath string) *dockerPlan {
+func newRunnerDockerPlan(workspacePath string) *dockerPlan {
 	plan := &dockerPlan{
-		projectRoot:            filepath.Clean(projectRoot),
 		workspacePath:          filepath.Clean(workspacePath),
-		containerProjectRoot:   "/workspace/project",
 		containerWorkspaceRoot: "/job/output",
 		mountMap:               map[string]runtime.Mount{},
-	}
-	plan.mountMap["project-root"] = runtime.Mount{
-		Source:   plan.projectRoot,
-		Target:   plan.containerProjectRoot,
-		ReadOnly: true,
 	}
 	plan.mountMap["workspace-root"] = runtime.Mount{
 		Source:   plan.workspacePath,
@@ -335,9 +336,6 @@ func (p *dockerPlan) containerPath(label string, hostPath string) string {
 	cleaned := filepath.Clean(hostPath)
 	if cleaned == p.workspacePath {
 		return p.containerWorkspaceRoot
-	}
-	if rel, err := filepath.Rel(p.projectRoot, cleaned); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(filepath.Join(p.containerProjectRoot, rel))
 	}
 	target := "/job/inputs/" + sanitizeLabel(label)
 	p.mountMap[label] = runtime.Mount{

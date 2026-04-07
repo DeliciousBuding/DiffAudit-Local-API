@@ -13,12 +13,14 @@ import (
 )
 
 type runtimeConfig struct {
+	ServiceRoot      string
 	Host             string
 	Port             string
 	RepoRoot         string
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
+	RunnersRoot      string
 	ExecutionMode    string
 	DockerBinary     string
 	GPUSchedulerPath string
@@ -37,8 +39,15 @@ func parseConfig(args []string) (runtimeConfig, error) {
 	flagSet := flag.NewFlagSet("local-api", flag.ContinueOnError)
 	flagSet.SetOutput(os.Stdout)
 
+	defaultServiceRoot, _ := os.Getwd()
 	host := flagSet.String("host", envOrDefault("DIFFAUDIT_LOCAL_API_HOST", "127.0.0.1"), "listen host")
 	port := flagSet.String("port", envOrDefault("DIFFAUDIT_LOCAL_API_PORT", "8765"), "listen port")
+	serviceRoot := flagSet.String("service-root", envOrDefault("DIFFAUDIT_LOCAL_API_SERVICE_ROOT", defaultServiceRoot), "local-api service root")
+	runnersRoot := flagSet.String(
+		"runners-root",
+		envOrDefault("DIFFAUDIT_LOCAL_API_RUNNERS_ROOT", filepath.Join(defaultServiceRoot, "runners")),
+		"runners root (contains recon-runner/, pia-runner/, gsa-runner/)",
+	)
 	projectRoot := flagSet.String("project-root", envOrDefault("DIFFAUDIT_LOCAL_API_PROJECT_ROOT", ""), "project root")
 	repoRoot := flagSet.String("repo-root", envOrDefault("DIFFAUDIT_LOCAL_API_REPO_ROOT", ""), "research repo root")
 	experimentsRoot := flagSet.String(
@@ -89,12 +98,14 @@ func parseConfig(args []string) (runtimeConfig, error) {
 	}
 
 	return runtimeConfig{
+		ServiceRoot:      cleanPath(*serviceRoot),
 		Host:             *host,
 		Port:             *port,
 		RepoRoot:         repoRootValue,
 		ExperimentsRoot:  experimentsRootValue,
 		JobsRoot:         jobsRootValue,
 		ProjectRoot:      projectRootValue,
+		RunnersRoot:      cleanPath(*runnersRoot),
 		ExecutionMode:    strings.TrimSpace(*executionMode),
 		DockerBinary:     strings.TrimSpace(*dockerBinary),
 		GPUSchedulerPath: cleanPath(*gpuScheduler),
@@ -114,6 +125,7 @@ func cleanPath(value string) string {
 func startupLogLines(config runtimeConfig) []string {
 	return []string{
 		fmt.Sprintf("listen=%s:%s", config.Host, config.Port),
+		fmt.Sprintf("service_root=%s", config.ServiceRoot),
 		fmt.Sprintf("project_root=%s", config.ProjectRoot),
 		fmt.Sprintf("repo_root=%s", config.RepoRoot),
 		fmt.Sprintf("experiments_root=%s", config.ExperimentsRoot),
@@ -143,6 +155,8 @@ func main() {
 	logger := configureLogger()
 
 	server := api.NewServer(api.Config{
+		ServiceRoot:      config.ServiceRoot,
+		RunnersRoot:      config.RunnersRoot,
 		ExperimentsRoot:  config.ExperimentsRoot,
 		JobsRoot:         config.JobsRoot,
 		ProjectRoot:      config.ProjectRoot,

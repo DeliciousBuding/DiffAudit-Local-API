@@ -18,6 +18,8 @@ import (
 )
 
 type Config struct {
+	ServiceRoot      string
+	RunnersRoot      string
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
@@ -202,6 +204,8 @@ func (s *Server) handleDiagnostics(writer http.ResponseWriter, _ *http.Request) 
 		"gpu_scheduler":   strings.TrimSpace(s.config.GPUSchedulerPath),
 		"gpu_request_doc": strings.TrimSpace(s.config.GPURequestDoc),
 		"paths": map[string]any{
+			"service_root":     describePath(s.config.ServiceRoot),
+			"runners_root":     describePath(s.config.RunnersRoot),
 			"experiments_root": describePath(s.config.ExperimentsRoot),
 			"jobs_root":        describePath(s.config.JobsRoot),
 			"project_root":     describePath(s.config.ProjectRoot),
@@ -952,6 +956,8 @@ func (s *Server) buildExecutionSpec(
 	return profiles.BuildSpec(profiles.JobRequest{
 		JobType:       payload.JobType,
 		RuntimeTarget: s.runtimeTargetForPayload(payload),
+		ServiceRoot:   s.config.ServiceRoot,
+		RunnersRoot:   s.config.RunnersRoot,
 		ProjectRoot:   projectRoot,
 		RepoRoot:      repoRoot,
 		WorkspacePath: workspacePath,

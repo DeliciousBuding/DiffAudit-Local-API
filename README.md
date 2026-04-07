@@ -15,9 +15,11 @@ It now combines:
 - an HTTP control plane
 - a contract registry
 - a profile-driven execution engine
+- a bundled runner codebase for black-box / gray-box / white-box execution
 
-The service still integrates with a separate research workspace via configured
-paths and does not assume any fixed parent directory.
+The service may still read assets, configs, and upstream repos from a separate
+workspace, but the executable attack/runtime code no longer has to come from
+`Project/src/diffaudit`.
 
 ## Run
 
@@ -39,6 +41,7 @@ Override roots only when your workspace layout is different:
 powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
   -ListenHost 127.0.0.1 `
   -ListenPort 8765 `
+  -ServiceRoot C:\path\to\DiffAudit-Local-API `
   -ProjectRoot C:\path\to\research-project `
   -ExperimentsRoot C:\path\to\research-project\experiments `
   -JobsRoot C:\path\to\local-api\jobs `
@@ -56,15 +59,50 @@ Execution mode:
 
 - `local`
   - default
-  - executes the resolved method command on the host
+  - executes the resolved runner script on the host
 - `docker`
   - uses the built-in Docker executor
-  - resolves a method profile into a `docker run ...` command
+  - resolves a method profile into a `docker run ...` command against the runner images
 
 New launcher flags and env:
 
+- `-ServiceRoot` / `DIFFAUDIT_LOCAL_API_SERVICE_ROOT`
+- `-RunnersRoot` / `DIFFAUDIT_LOCAL_API_RUNNERS_ROOT`
 - `-ExecutionMode` / `DIFFAUDIT_LOCAL_API_EXECUTION_MODE`
 - `-DockerBinary` / `DIFFAUDIT_LOCAL_API_DOCKER_BINARY`
+
+## Runner System
+
+Runner code now lives in this repository under:
+
+- `runners/shared`
+- `runners/recon-runner`
+- `runners/pia-runner`
+- `runners/gsa-runner`
+
+Current intent:
+
+- `Project` remains the research source of truth
+- `Local-API` dispatches bundled runner code from this repo
+- assets, configs, and upstream repos are passed in as inputs rather than imported from `Project/src/diffaudit`
+
+This is the path used to decouple black-box / gray-box / white-box execution
+from the research repo while keeping the current assets and external upstream
+repos usable.
+
+Current runner images:
+
+- `diffaudit/recon-runner:latest`
+- `diffaudit/pia-runner:latest`
+- `diffaudit/gsa-runner:latest`
+
+Build commands:
+
+```powershell
+docker build -t diffaudit/recon-runner:latest -f runners/recon-runner/Dockerfile .
+docker build -t diffaudit/pia-runner:latest -f runners/pia-runner/Dockerfile .
+docker build -t diffaudit/gsa-runner:latest -f runners/gsa-runner/Dockerfile .
+```
 
 ## Docker
 

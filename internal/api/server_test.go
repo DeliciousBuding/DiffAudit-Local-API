@@ -265,6 +265,7 @@ func TestExecutePythonJobUsesConfiguredRepoRoot(t *testing.T) {
 	var gotDir string
 
 	server := NewServer(Config{
+		ServiceRoot: root,
 		ProjectRoot: root,
 		RepoRoot:    "D:/repo-from-config",
 		ExecCommand: func(command []string, dir string) ([]byte, error) {
@@ -1399,7 +1400,7 @@ func TestPlannedJobCommandUsesPayloadRuntimeProfile(t *testing.T) {
 		"docker",
 		"diffaudit/gsa-runner:latest",
 		"run-gsa-runtime-mainline",
-		"/workspace/project/workspaces/white-box/assets/gsa",
+		"/job/inputs/assets-root",
 	} {
 		if !strings.Contains(commandLine, want) {
 			t.Fatalf("expected payload-selected docker command to contain %q, got %v", want, command)
