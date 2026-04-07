@@ -263,6 +263,14 @@ func TestExecutePythonJobAcquiresAndReleasesGPU(t *testing.T) {
 		auditJobCreate{
 			JobType:       "recon_runtime_mainline",
 			WorkspaceName: "workspace-a",
+			JobInputs: map[string]any{
+				"target_member_dataset":    "D:/datasets/target_member.pt",
+				"target_nonmember_dataset": "D:/datasets/target_non_member.pt",
+				"shadow_member_dataset":    "D:/datasets/shadow_member.pt",
+				"shadow_nonmember_dataset": "D:/datasets/shadow_non_member.pt",
+				"target_model_dir":         "D:/models/target",
+				"shadow_model_dir":         "D:/models/shadow",
+			},
 		},
 		filepath.Join(root, "workspace-a"),
 	)
@@ -324,14 +332,14 @@ func TestModelsEndpoint(t *testing.T) {
 
 func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
 	pia := findContractDefinition(t, "gray-box/pia/cifar10-ddpm")
-	if pia.ContractStatus != "target" {
-		t.Fatalf("expected pia contract_status target, got %s", pia.ContractStatus)
+	if pia.ContractStatus != "live" {
+		t.Fatalf("expected pia contract_status live, got %s", pia.ContractStatus)
 	}
-	if pia.CatalogVisible {
-		t.Fatalf("expected pia target contract to stay out of live catalog")
+	if !pia.CatalogVisible {
+		t.Fatalf("expected pia contract to be visible in live catalog")
 	}
-	if len(pia.Jobs) != 0 {
-		t.Fatalf("expected pia target contract to have no live jobs, got %d", len(pia.Jobs))
+	if len(pia.Jobs) == 0 {
+		t.Fatal("expected pia contract to expose at least one live job")
 	}
 	if pia.FeatureAccess != "epsilon_t" {
 		t.Fatalf("expected pia feature_access epsilon_t, got %s", pia.FeatureAccess)
@@ -341,14 +349,14 @@ func TestContractRegistryIncludesTargetGrayAndWhiteContracts(t *testing.T) {
 	}
 
 	gsa := findContractDefinition(t, "white-box/gsa/ddpm-cifar10")
-	if gsa.ContractStatus != "target" {
-		t.Fatalf("expected gsa contract_status target, got %s", gsa.ContractStatus)
+	if gsa.ContractStatus != "live" {
+		t.Fatalf("expected gsa contract_status live, got %s", gsa.ContractStatus)
 	}
-	if gsa.CatalogVisible {
-		t.Fatalf("expected gsa target contract to stay out of live catalog")
+	if !gsa.CatalogVisible {
+		t.Fatalf("expected gsa contract to be visible in live catalog")
 	}
-	if len(gsa.Jobs) != 0 {
-		t.Fatalf("expected gsa target contract to have no live jobs, got %d", len(gsa.Jobs))
+	if len(gsa.Jobs) == 0 {
+		t.Fatal("expected gsa contract to expose at least one live job")
 	}
 	if gsa.FeatureAccess != "gradient" {
 		t.Fatalf("expected gsa feature_access gradient, got %s", gsa.FeatureAccess)
@@ -380,8 +388,8 @@ func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
 	}
 
 	payload := decodeJSONArrayResponse(t, recorder)
-	if len(payload) != 2 {
-		t.Fatalf("expected 2 recon catalog entries, got %d", len(payload))
+	if len(payload) < 4 {
+		t.Fatalf("expected at least 4 catalog entries, got %d", len(payload))
 	}
 
 	entry := findCatalogEntry(t, payload, "recon", "sd15-ddim")
@@ -850,6 +858,113 @@ func TestCreateJobAcceptsGenericJobInputs(t *testing.T) {
 	}
 	if jobInputs["method"] != "quantile" {
 		t.Fatalf("expected method in job_inputs, got %v", jobInputs["method"])
+	}
+}
+
+func TestCreateJobAcceptsPiaRuntimeMainline(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":       "pia_runtime_mainline",
+		"contract_key":   "gray-box/pia/cifar10-ddpm",
+		"workspace_name": "api-pia-001",
+		"repo_root":      "D:/Code/DiffAudit/Project/external/PIA",
+		"job_inputs": map[string]any{
+			"config":            "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+			"member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
+			"device":            "cpu",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateJobAcceptsGsaRuntimeMainline(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":       "gsa_runtime_mainline",
+		"contract_key":   "white-box/gsa/ddpm-cifar10",
+		"workspace_name": "api-gsa-001",
+		"repo_root":      "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+		"job_inputs": map[string]any{
+			"assets_root":        "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+			"resolution":         "32",
+			"ddpm_num_steps":     "20",
+			"sampling_frequency": "2",
+			"attack_method":      "1",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPlannedJobCommandUsesDockerExecutorWhenConfigured(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ProjectRoot:     "D:/Code/DiffAudit/Project",
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+		ExecutionMode:   "docker",
+		DockerBinary:    "docker",
+	})
+
+	command, err := server.plannedJobCommand(
+		auditJobCreate{
+			JobType:       "pia_runtime_mainline",
+			ContractKey:   "gray-box/pia/cifar10-ddpm",
+			WorkspaceName: "docker-pia-001",
+			RepoRoot:      "D:/Code/DiffAudit/Project/external/PIA",
+			JobInputs: map[string]any{
+				"config":            "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+				"member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
+			},
+		},
+		"D:/Code/DiffAudit/Project/experiments/docker-pia-001",
+	)
+	if err != nil {
+		t.Fatalf("plannedJobCommand returned error: %v", err)
+	}
+	commandLine := strings.Join(command, "\n")
+	for _, want := range []string{
+		"docker",
+		"diffaudit/pia-runner:latest",
+		"run-pia-runtime-mainline",
+		"/job/output",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("expected docker command to contain %q, got %v", want, command)
+		}
 	}
 }
 

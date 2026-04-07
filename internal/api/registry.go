@@ -51,18 +51,18 @@ type contractDefinition struct {
 }
 
 type contractProjection struct {
-	ContractKey     string
-	Track           string
-	AttackFamily    string
-	TargetKey       string
-	Availability    string
-	EvidenceLevel   string
-	Label           string
-	Paper           string
-	Backend         string
-	Scheduler       *string
-	ContractStatus  string
-	CatalogVisible  bool
+	ContractKey    string
+	Track          string
+	AttackFamily   string
+	TargetKey      string
+	Availability   string
+	EvidenceLevel  string
+	Label          string
+	Paper          string
+	Backend        string
+	Scheduler      *string
+	ContractStatus string
+	CatalogVisible bool
 }
 
 var contractRegistry = []contractDefinition{
@@ -177,22 +177,22 @@ var contractRegistry = []contractDefinition{
 		TargetKey:            "cifar10-ddpm",
 		Label:                "PIA on CIFAR10 DDPM",
 		Paper:                "PIA",
-		Availability:         "planned",
+		Backend:              "",
+		Availability:         "ready",
 		DefaultEvidenceLevel: "catalog",
-		ContractStatus:       "target",
-		RegistryEvidence:     "real-asset-probe-ready",
+		ContractStatus:       "live",
+		RegistryEvidence:     "runtime-mainline",
 		FeatureAccess:        "epsilon_t",
 		CheckpointFormat:     "single-file",
 		RequiredInputsNow: []string{
-			"dataset_name",
-			"dataset_root",
-			"model_dir",
-			"member_split_root",
-			"observable_contract_level",
+			"config",
 		},
 		OptionalInputsLater: []string{
-			"preview_batch_size",
-			"gpu_runtime_profile",
+			"member_split_root",
+			"device",
+			"num_samples",
+			"batch_size",
+			"stochastic_dropout_defense",
 		},
 		PromotedAssetRoots: []string{
 			"Project/workspaces/gray-box/assets/pia/checkpoints",
@@ -204,7 +204,26 @@ var contractRegistry = []contractDefinition{
 			"summary hydration rule is proven against real non-smoke evidence",
 			"asset grade and provenance status are approved for live catalog exposure",
 		},
-		SystemGap: "missing unified runtime mainline command and admitted Local-API live job contract",
+		SystemGap:       "result hydration and platform contract still need to ingest gray-box live summaries",
+		CatalogVisible:  true,
+		StatusMethodKey: "pia",
+		Model: &modelOption{
+			Key:          "pia-cifar10-ddpm",
+			Label:        "PIA on CIFAR10 DDPM",
+			AccessLevel:  "gray-box",
+			Availability: "ready",
+			Paper:        "PIA",
+			Method:       "pia",
+			Backend:      "",
+		},
+		Jobs: []jobDefinition{
+			{
+				JobType:        "pia_runtime_mainline",
+				Runner:         "pia_runtime_mainline",
+				RequiredInputs: []string{"config"},
+				RequestsGPU:    false,
+			},
+		},
 	},
 	{
 		ContractKey:          "white-box/gsa/ddpm-cifar10",
@@ -213,24 +232,25 @@ var contractRegistry = []contractDefinition{
 		TargetKey:            "ddpm-cifar10",
 		Label:                "GSA on DDPM CIFAR10",
 		Paper:                "GSA",
-		Availability:         "planned",
+		Backend:              "",
+		Availability:         "partial",
 		DefaultEvidenceLevel: "catalog",
-		ContractStatus:       "target",
-		RegistryEvidence:     "gradient-smoke",
+		ContractStatus:       "live",
+		RegistryEvidence:     "runtime-mainline",
 		FeatureAccess:        "gradient",
 		CheckpointFormat:     "directory-state",
 		RequiredInputsNow: []string{
-			"train_data_dir",
-			"gradient_extraction_spec",
+			"assets_root",
 		},
 		OptionalInputsLater: []string{
-			"target_checkpoint_path",
-			"shadow_checkpoint_paths",
-			"member_split_root",
-			"activation_hook_spec",
+			"resolution",
+			"ddpm_num_steps",
+			"sampling_frequency",
+			"attack_method",
+			"prediction_type",
 		},
 		PromotedAssetRoots: []string{
-			"Project/workspaces/white-box/assets/gsa/models",
+			"Project/workspaces/white-box/assets/gsa/checkpoints",
 			"Project/workspaces/white-box/assets/gsa/datasets",
 		},
 		LivePromotionGates: []string{
@@ -239,7 +259,26 @@ var contractRegistry = []contractDefinition{
 			"non-smoke member/non-member inputs are available",
 			"summary hydration rule is proven against non-toy evidence",
 		},
-		SystemGap: "no diff-audit adapter, no admitted Local-API live job contract, and no promoted live asset root yet",
+		SystemGap:       "white-box runtime is live but current metrics are still tiny-sample local evidence",
+		CatalogVisible:  true,
+		StatusMethodKey: "gsa",
+		Model: &modelOption{
+			Key:          "gsa-ddpm-cifar10",
+			Label:        "GSA on DDPM CIFAR10",
+			AccessLevel:  "white-box",
+			Availability: "partial",
+			Paper:        "GSA",
+			Method:       "gsa",
+			Backend:      "",
+		},
+		Jobs: []jobDefinition{
+			{
+				JobType:        "gsa_runtime_mainline",
+				Runner:         "gsa_runtime_mainline",
+				RequiredInputs: []string{"assets_root"},
+				RequestsGPU:    false,
+			},
+		},
 	},
 }
 

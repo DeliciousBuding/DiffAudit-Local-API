@@ -19,6 +19,8 @@ type runtimeConfig struct {
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
+	ExecutionMode    string
+	DockerBinary     string
 	GPUSchedulerPath string
 	GPURequestDoc    string
 	GPUAgentPrefix   string
@@ -48,6 +50,16 @@ func parseConfig(args []string) (runtimeConfig, error) {
 		"jobs-root",
 		envOrDefault("DIFFAUDIT_LOCAL_API_JOBS_ROOT", ""),
 		"jobs root",
+	)
+	executionMode := flagSet.String(
+		"execution-mode",
+		envOrDefault("DIFFAUDIT_LOCAL_API_EXECUTION_MODE", "local"),
+		"execution mode: local or docker",
+	)
+	dockerBinary := flagSet.String(
+		"docker-binary",
+		envOrDefault("DIFFAUDIT_LOCAL_API_DOCKER_BINARY", "docker"),
+		"docker cli binary used when execution-mode=docker",
 	)
 	gpuScheduler := flagSet.String(
 		"gpu-scheduler",
@@ -83,6 +95,8 @@ func parseConfig(args []string) (runtimeConfig, error) {
 		ExperimentsRoot:  experimentsRootValue,
 		JobsRoot:         jobsRootValue,
 		ProjectRoot:      projectRootValue,
+		ExecutionMode:    strings.TrimSpace(*executionMode),
+		DockerBinary:     strings.TrimSpace(*dockerBinary),
 		GPUSchedulerPath: cleanPath(*gpuScheduler),
 		GPURequestDoc:    cleanPath(*gpuRequestDoc),
 		GPUAgentPrefix:   *gpuAgentPrefix,
@@ -104,6 +118,8 @@ func startupLogLines(config runtimeConfig) []string {
 		fmt.Sprintf("repo_root=%s", config.RepoRoot),
 		fmt.Sprintf("experiments_root=%s", config.ExperimentsRoot),
 		fmt.Sprintf("jobs_root=%s", config.JobsRoot),
+		fmt.Sprintf("execution_mode=%s", config.ExecutionMode),
+		fmt.Sprintf("docker_binary=%s", config.DockerBinary),
 		fmt.Sprintf("gpu_scheduler=%s", config.GPUSchedulerPath),
 		fmt.Sprintf("gpu_request_doc=%s", config.GPURequestDoc),
 		fmt.Sprintf("gpu_agent_prefix=%s", config.GPUAgentPrefix),
@@ -132,6 +148,8 @@ func main() {
 		ProjectRoot:      config.ProjectRoot,
 		RepoRoot:         config.RepoRoot,
 		AutoStartJobs:    true,
+		ExecutionMode:    config.ExecutionMode,
+		DockerBinary:     config.DockerBinary,
 		GPUSchedulerPath: config.GPUSchedulerPath,
 		GPURequestDoc:    config.GPURequestDoc,
 		GPUAgentPrefix:   config.GPUAgentPrefix,

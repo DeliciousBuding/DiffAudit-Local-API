@@ -1,6 +1,6 @@
 # Local API Service
 
-Standalone HTTP control plane for running local research workflows.
+Standalone audit service for running local research workflows.
 
 Public repository:
 
@@ -8,9 +8,16 @@ Public repository:
 
 ## Repository Scope
 
-This repository only contains the Local API service. It integrates with a separate
-research workspace via configured paths and does not assume any fixed parent
-directory.
+This repository contains the Local API service as a unified audit surface.
+
+It now combines:
+
+- an HTTP control plane
+- a contract registry
+- a profile-driven execution engine
+
+The service still integrates with a separate research workspace via configured
+paths and does not assume any fixed parent directory.
 
 ## Run
 
@@ -34,7 +41,8 @@ powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
   -ListenPort 8765 `
   -ProjectRoot C:\path\to\research-project `
   -ExperimentsRoot C:\path\to\research-project\experiments `
-  -JobsRoot C:\path\to\local-api\jobs
+  -JobsRoot C:\path\to\local-api\jobs `
+  -ExecutionMode local
 ```
 
 Use an isolated env profile instead of hardcoding machine-specific paths:
@@ -43,6 +51,20 @@ Use an isolated env profile instead of hardcoding machine-specific paths:
 powershell -ExecutionPolicy Bypass -File .\run-local-api.ps1 `
   -EnvFile .\config\dev.env
 ```
+
+Execution mode:
+
+- `local`
+  - default
+  - executes the resolved method command on the host
+- `docker`
+  - uses the built-in Docker executor
+  - resolves a method profile into a `docker run ...` command
+
+New launcher flags and env:
+
+- `-ExecutionMode` / `DIFFAUDIT_LOCAL_API_EXECUTION_MODE`
+- `-DockerBinary` / `DIFFAUDIT_LOCAL_API_DOCKER_BINARY`
 
 ## Docker
 
@@ -72,6 +94,25 @@ docker run --rm -p 8765:8765 `
 same API contract as the native process. The only Docker-specific requirement is
 that the container paths must exist and be writable when job endpoints are used.
 
+If you want the Local-API container itself to launch Docker jobs, the host must
+also expose a Docker daemon to the container. On Linux that usually means:
+
+```powershell
+docker run --rm -p 8765:8765 `
+  -e DIFFAUDIT_LOCAL_API_EXECUTION_MODE=docker `
+  -v /var/run/docker.sock:/var/run/docker.sock `
+  -v C:\path\to\project:/workspace/project `
+  -v C:\path\to\repo:/workspace/repo `
+  -v local-api-jobs:/workspace/jobs `
+  diffaudit-local-api:dev
+```
+
+Recommended operational stance:
+
+- host-native `Local-API` is simplest when iterating locally
+- containerized `Local-API` is fine for deployment, but Docker execution mode
+  requires access to a usable Docker daemon
+
 ## Configuration Isolation
 
 - Real env files are local-only and ignored by git.
@@ -99,8 +140,20 @@ Current discovery and control routes:
 - `POST /api/v1/audit/jobs`
 - `GET /api/v1/audit/jobs/{job_id}`
 
-`POST /api/v1/audit/jobs` now requires an explicit `contract_key`. The current
-publicly supported executable contract is the black-box recon mainline:
+`POST /api/v1/audit/jobs` requires an explicit `contract_key`. The service now
+uses a profile-driven execution layer internally:
+
+- registry resolves `contract_key + job_type`
+- profile resolves a method-specific execution spec
+- runtime executes that spec in `local` or `docker` mode
+
+Current live executable contracts:
+
+- `black-box/recon/sd15-ddim`
+- `gray-box/pia/cifar10-ddpm`
+- `white-box/gsa/ddpm-cifar10`
+
+Example black-box job:
 
 ```json
 {
@@ -114,20 +167,57 @@ publicly supported executable contract is the black-box recon mainline:
 }
 ```
 
+Example gray-box job:
+
+```json
+{
+  "job_type": "pia_runtime_mainline",
+  "contract_key": "gray-box/pia/cifar10-ddpm",
+  "workspace_name": "api-pia-runtime-mainline-001",
+  "repo_root": "D:/Code/DiffAudit/Project/external/PIA",
+  "job_inputs": {
+    "config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+    "member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
+    "device": "cpu",
+    "num_samples": "16"
+  }
+}
+```
+
+Example white-box job:
+
+```json
+{
+  "job_type": "gsa_runtime_mainline",
+  "contract_key": "white-box/gsa/ddpm-cifar10",
+  "workspace_name": "api-gsa-runtime-mainline-001",
+  "repo_root": "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+  "job_inputs": {
+    "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+    "resolution": "32",
+    "ddpm_num_steps": "20",
+    "sampling_frequency": "2",
+    "attack_method": "1"
+  }
+}
+```
+
 The service rejects job bodies that omit `contract_key` or pair a `job_type`
 with the wrong contract. Contract-specific fields should go under `job_inputs`.
 Current recon callers may still send legacy top-level `artifact_dir` and
 `method`, and the service normalizes them into `job_inputs` internally.
 
-Internally, `Local-API` now keeps a contract registry that separates:
+Internally, `Local-API` now keeps:
+
+- a contract registry
+- method execution profiles
+- runtime executors
+
+The registry still separates:
 
 - live contracts that power the current public `catalog`, `models`, and job routes
 - target contracts that describe future gray-box / white-box admission without
   pretending those lines are executable today
-
-The current live executable line remains `black-box/recon/sd15-ddim`. Gray-box
-and white-box rows are registry-only placeholders until they have admitted job
-definitions and stable runnable assets.
 
 A target contract is not promoted to live just because code or smoke assets
 exist. The registry now carries explicit promotion gates for future lines, such
@@ -140,12 +230,12 @@ as:
 
 Job observability note:
 
-- the default execution path still uses Go `CombinedOutput()`
-- when that path fails, `command` is recorded, `output_capture` is set to
-  `combined`, and the merged command-output tail is stored in `output_tail`
-- in that default combined mode, `stdout_tail` and `stderr_tail` are not
-  treated as authoritative split streams
-- a future runner can provide stronger stream semantics if needed
+- the service now resolves an execution spec before running any job
+- `local` mode executes the resolved command directly on the host
+- `docker` mode wraps the same execution spec in a `docker run` command
+- failure records still persist `command`, `output_capture`, and `output_tail`
+- the current default error path still treats combined output as the
+  authoritative fallback stream
 
 ## Environment Variables
 
@@ -154,6 +244,8 @@ Job observability note:
 - `DIFFAUDIT_LOCAL_API_PROJECT_ROOT`
 - `DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT`
 - `DIFFAUDIT_LOCAL_API_JOBS_ROOT`
+- `DIFFAUDIT_LOCAL_API_EXECUTION_MODE`
+- `DIFFAUDIT_LOCAL_API_DOCKER_BINARY`
 - `DIFFAUDIT_LOCAL_API_GPU_SCHEDULER`
 - `DIFFAUDIT_LOCAL_API_GPU_REQUEST_DOC`
 - `DIFFAUDIT_LOCAL_API_GPU_AGENT_PREFIX`

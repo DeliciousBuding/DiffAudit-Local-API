@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata docker-cli
 
 WORKDIR /app
 
@@ -23,6 +23,8 @@ COPY --from=build /out/local-api /usr/local/bin/local-api
 
 ENV DIFFAUDIT_LOCAL_API_HOST=0.0.0.0
 ENV DIFFAUDIT_LOCAL_API_PORT=8765
+ENV DIFFAUDIT_LOCAL_API_EXECUTION_MODE=local
+ENV DIFFAUDIT_LOCAL_API_DOCKER_BINARY=docker
 
 EXPOSE 8765
 

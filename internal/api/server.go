@@ -12,6 +12,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/DeliciousBuding/DiffAudit-Local-API/internal/profiles"
+	serviceruntime "github.com/DeliciousBuding/DiffAudit-Local-API/internal/runtime"
 )
 
 type Config struct {
@@ -22,6 +25,8 @@ type Config struct {
 	AutoStartJobs    bool
 	Executor         func(payload auditJobCreate, workspacePath string) error
 	ExecCommand      func(command []string, dir string) ([]byte, error)
+	ExecutionMode    string
+	DockerBinary     string
 	GPUSchedulerPath string
 	GPURequestDoc    string
 	GPUAgentPrefix   string
@@ -359,10 +364,22 @@ func (s *Server) bestSummaryPathByScan(definition contractDefinition) (string, e
 	if err != nil {
 		return "", err
 	}
-	pattern := filepath.Join(experimentsRoot, "*", "summary.json")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return "", err
+	patterns := []string{
+		filepath.Join(experimentsRoot, "*", "summary.json"),
+	}
+	if projectRoot := strings.TrimSpace(s.config.ProjectRoot); projectRoot != "" {
+		patterns = append(patterns,
+			filepath.Join(projectRoot, "workspaces", "gray-box", "runs", "*", "summary.json"),
+			filepath.Join(projectRoot, "workspaces", "white-box", "runs", "*", "summary.json"),
+		)
+	}
+	matches := make([]string, 0)
+	for _, pattern := range patterns {
+		found, globErr := filepath.Glob(pattern)
+		if globErr != nil {
+			return "", globErr
+		}
+		matches = append(matches, found...)
 	}
 
 	type candidate struct {
@@ -405,9 +422,12 @@ func summaryMatchesContract(definition contractDefinition, summaryPath string) b
 	}
 	runtime, ok := payload["runtime"].(map[string]any)
 	if !ok {
-		return false
+		return definition.Backend == ""
 	}
 	backend, _ := runtime["backend"].(string)
+	if definition.Backend == "" {
+		return true
+	}
 	if backend != definition.Backend {
 		return false
 	}
@@ -713,19 +733,16 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 		}
 	}
 
-	command := s.pythonCommand(payload, workspacePath, repoRoot)
-	if len(command) == 0 {
-		return errors.New("empty job command")
+	spec, err := s.buildExecutionSpec(payload, workspacePath, projectRoot, repoRoot)
+	if err != nil {
+		return err
 	}
-	execFn := s.config.ExecCommand
-	if execFn == nil {
-		execFn = defaultExecCommand
-	}
-	output, err := execFn(command, projectRoot)
+	executor := s.executionExecutor()
+	output, err := executor.Execute(spec)
 	if err != nil {
 		return commandExecutionError{
 			message:    commandFailureMessage(err, output),
-			command:    command,
+			command:    mustBuildCommand(executor, spec),
 			outputTail: outputTailLines(output),
 		}
 	}
@@ -811,57 +828,64 @@ func (s *Server) resolveRepoRoot(payload auditJobCreate) (string, error) {
 }
 
 func (s *Server) plannedJobCommand(payload auditJobCreate, workspacePath string) ([]string, error) {
+	projectRoot, err := requireConfigPath("project_root", s.config.ProjectRoot, "execute audit jobs")
+	if err != nil {
+		return nil, err
+	}
 	repoRoot, err := s.resolveRepoRoot(payload)
 	if err != nil {
 		return nil, err
 	}
-	command := s.pythonCommand(payload, workspacePath, repoRoot)
-	if len(command) == 0 {
-		return nil, errors.New("empty job command")
+	spec, err := s.buildExecutionSpec(payload, workspacePath, projectRoot, repoRoot)
+	if err != nil {
+		return nil, err
 	}
-	return command, nil
+	return s.executionExecutor().BuildCommand(spec)
 }
 
-func (s *Server) pythonCommand(payload auditJobCreate, workspacePath string, repoRoot string) []string {
-	method := jobInputString(payload, "method")
-	if method == "" {
-		method = "threshold"
+func (s *Server) buildExecutionSpec(
+	payload auditJobCreate,
+	workspacePath string,
+	projectRoot string,
+	repoRoot string,
+) (serviceruntime.ExecutionSpec, error) {
+	return profiles.BuildSpec(profiles.JobRequest{
+		JobType:       payload.JobType,
+		RuntimeTarget: s.runtimeTarget(),
+		ProjectRoot:   projectRoot,
+		RepoRoot:      repoRoot,
+		WorkspacePath: workspacePath,
+		Inputs:        normalizedJobInputs(payload),
+	})
+}
+
+func (s *Server) runtimeTarget() profiles.RuntimeTarget {
+	if strings.EqualFold(strings.TrimSpace(s.config.ExecutionMode), "docker") {
+		return profiles.RuntimeTargetDocker
 	}
-	job, _, ok := liveJobDefinition(payload.JobType)
-	if !ok {
+	return profiles.RuntimeTargetLocal
+}
+
+func (s *Server) executionExecutor() serviceruntime.Executor {
+	execFn := s.config.ExecCommand
+	if execFn == nil {
+		execFn = defaultExecCommand
+	}
+	if s.runtimeTarget() == profiles.RuntimeTargetDocker {
+		return serviceruntime.DockerExecutor{
+			Binary:      strings.TrimSpace(s.config.DockerBinary),
+			ExecCommand: execFn,
+		}
+	}
+	return serviceruntime.LocalExecutor{ExecCommand: execFn}
+}
+
+func mustBuildCommand(executor serviceruntime.Executor, spec serviceruntime.ExecutionSpec) []string {
+	command, err := executor.BuildCommand(spec)
+	if err != nil {
 		return nil
 	}
-	if job.Runner == "recon_artifact_mainline" {
-		return []string{
-			"python",
-			"-m",
-			"diffaudit",
-			"run-recon-artifact-mainline",
-			"--artifact-dir",
-			jobInputString(payload, "artifact_dir"),
-			"--workspace",
-			workspacePath,
-			"--repo-root",
-			repoRoot,
-			"--method",
-			method,
-		}
-	}
-	if job.Runner == "recon_runtime_mainline" {
-		return []string{
-			"python",
-			"-m",
-			"diffaudit",
-			"run-recon-runtime-mainline",
-			"--workspace",
-			workspacePath,
-			"--repo-root",
-			repoRoot,
-			"--method",
-			method,
-		}
-	}
-	return nil
+	return command
 }
 
 func headlineMetrics(payload map[string]any) map[string]any {
@@ -920,6 +944,21 @@ func jobInputString(payload auditJobCreate, key string) string {
 	default:
 		return ""
 	}
+}
+
+func normalizedJobInputs(payload auditJobCreate) map[string]any {
+	inputs := cloneMap(payload.JobInputs)
+	if payload.ArtifactDir != "" {
+		if _, ok := inputs["artifact_dir"]; !ok {
+			inputs["artifact_dir"] = payload.ArtifactDir
+		}
+	}
+	if payload.Method != "" {
+		if _, ok := inputs["method"]; !ok {
+			inputs["method"] = payload.Method
+		}
+	}
+	return inputs
 }
 
 func cloneMap(value map[string]any) map[string]any {
