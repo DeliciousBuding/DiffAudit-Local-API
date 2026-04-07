@@ -133,6 +133,7 @@ Do not assume loopback or a fixed workspace path in client configs.
 Current discovery and control routes:
 
 - `GET /health`
+- `GET /diagnostics`
 - `GET /api/v1/catalog`
 - `GET /api/v1/experiments/recon/best`
 - `GET /api/v1/experiments/{workspace}/summary`
@@ -329,21 +330,14 @@ Current scope and limitation:
 - Windows and macOS consumers still need to build from source unless a broader
   release matrix is added later
 
-## License Status
+## License
 
-This repository currently does not include a `LICENSE` file.
+This repository is licensed under the Apache License, Version 2.0.
 
-That is an explicit release-governance gap, not something this workflow can
-decide automatically. Until a license is chosen, the terms for reuse,
-redistribution, and commercial consumption remain undecided.
+See:
 
-Current status:
-
-- release assets can be produced and attached to GitHub Releases
-- the legal consumption terms are still pending a license decision
-
-Treat license selection as a required follow-up before calling the public
-release surface fully settled.
+- `LICENSE`
+- `THIRD_PARTY_NOTICES.md`
 
 ## Governance Boundary
 

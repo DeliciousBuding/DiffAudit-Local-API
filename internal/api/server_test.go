@@ -89,6 +89,65 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
+	root := t.TempDir()
+	experiments := filepath.Join(root, "experiments")
+	jobs := filepath.Join(root, "jobs")
+	project := filepath.Join(root, "project")
+	repo := filepath.Join(root, "repo")
+	for _, path := range []string{experiments, jobs, project, repo} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+	}
+	server := NewServer(Config{
+		ExperimentsRoot:  experiments,
+		JobsRoot:         jobs,
+		ProjectRoot:      project,
+		RepoRoot:         repo,
+		ExecutionMode:    "docker",
+		DockerBinary:     "docker",
+		GPUSchedulerPath: "/opt/gpu-scheduler",
+		GPURequestDoc:    "docs/gpu-request.md",
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/diagnostics", nil)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	payload := decodeJSONResponse(t, recorder)
+	if payload["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", payload["status"])
+	}
+	if payload["execution_mode"] != "docker" {
+		t.Fatalf("expected execution_mode docker, got %v", payload["execution_mode"])
+	}
+	paths, ok := payload["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected paths map, got %T", payload["paths"])
+	}
+	checkPath := func(key, want string) {
+		entry, ok := paths[key].(map[string]any)
+		if !ok {
+			t.Fatalf("expected %s to be map, got %T", key, paths[key])
+		}
+		if entry["path"] != want {
+			t.Fatalf("expected %s path %s, got %v", key, want, entry["path"])
+		}
+		if exists, ok := entry["exists"].(bool); !ok || !exists {
+			t.Fatalf("expected %s exists=true, got %v", key, entry["exists"])
+		}
+	}
+	checkPath("experiments_root", experiments)
+	checkPath("jobs_root", jobs)
+	checkPath("project_root", project)
+	checkPath("repo_root", repo)
+}
+
 func TestRequestLoggingMiddlewareRecordsMethodPathAndStatus(t *testing.T) {
 	var logBuffer bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{}))

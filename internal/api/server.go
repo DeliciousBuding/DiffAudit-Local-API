@@ -123,6 +123,7 @@ func NewServer(config Config) *Server {
 		mux:    mux,
 	}
 	mux.HandleFunc("GET /health", server.handleHealth)
+	mux.HandleFunc("GET /diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("GET /api/v1/catalog", server.handleCatalog)
 	mux.HandleFunc("GET /api/v1/models", server.handleModels)
 	mux.HandleFunc("GET /api/v1/experiments/recon/best", server.handleBestRecon)
@@ -176,6 +177,22 @@ func (s *Server) handleHealth(writer http.ResponseWriter, _ *http.Request) {
 		"status":           "ok",
 		"experiments_root": s.config.ExperimentsRoot,
 		"jobs_root":        s.config.JobsRoot,
+	})
+}
+
+func (s *Server) handleDiagnostics(writer http.ResponseWriter, _ *http.Request) {
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"status":          "ok",
+		"execution_mode":  strings.TrimSpace(s.config.ExecutionMode),
+		"docker_binary":   strings.TrimSpace(s.config.DockerBinary),
+		"gpu_scheduler":   strings.TrimSpace(s.config.GPUSchedulerPath),
+		"gpu_request_doc": strings.TrimSpace(s.config.GPURequestDoc),
+		"paths": map[string]any{
+			"experiments_root": describePath(s.config.ExperimentsRoot),
+			"jobs_root":        describePath(s.config.JobsRoot),
+			"project_root":     describePath(s.config.ProjectRoot),
+			"repo_root":        describePath(s.config.RepoRoot),
+		},
 	})
 }
 
@@ -635,6 +652,21 @@ func requireConfigPath(name, value, purpose string) (string, error) {
 		return "", configError{message: fmt.Sprintf("%s is required to %s", name, purpose)}
 	}
 	return value, nil
+}
+
+func describePath(path string) map[string]any {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return map[string]any{
+			"path":   "",
+			"exists": false,
+		}
+	}
+	_, err := os.Stat(trimmed)
+	return map[string]any{
+		"path":   trimmed,
+		"exists": err == nil,
+	}
 }
 
 func statusCodeForError(err error, defaultStatus int) int {
