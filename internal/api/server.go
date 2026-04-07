@@ -39,13 +39,15 @@ type Server struct {
 }
 
 type auditJobCreate struct {
-	JobType       string         `json:"job_type"`
-	ContractKey   string         `json:"contract_key"`
-	WorkspaceName string         `json:"workspace_name"`
-	RepoRoot      string         `json:"repo_root,omitempty"`
-	Method        string         `json:"method,omitempty"`
-	ArtifactDir   string         `json:"artifact_dir,omitempty"`
-	JobInputs     map[string]any `json:"job_inputs,omitempty"`
+	JobType        string         `json:"job_type"`
+	ContractKey    string         `json:"contract_key"`
+	WorkspaceName  string         `json:"workspace_name"`
+	RepoRoot       string         `json:"repo_root,omitempty"`
+	RuntimeProfile string         `json:"runtime_profile,omitempty"`
+	Assets         map[string]any `json:"assets,omitempty"`
+	Method         string         `json:"method,omitempty"`
+	ArtifactDir    string         `json:"artifact_dir,omitempty"`
+	JobInputs      map[string]any `json:"job_inputs,omitempty"`
 }
 
 type auditJobRecord struct {
@@ -521,6 +523,9 @@ func validateCreatePayload(payload auditJobCreate) error {
 	if strings.Contains(payload.WorkspaceName, "/") || strings.Contains(payload.WorkspaceName, "\\") {
 		return errors.New("workspace_name must be a single workspace directory name")
 	}
+	if err := validateRuntimeProfile(payload.RuntimeProfile); err != nil {
+		return err
+	}
 	job, definition, ok := liveJobDefinition(payload.JobType)
 	if !ok {
 		return errors.New("unsupported job_type")
@@ -737,7 +742,7 @@ func (s *Server) executePythonJob(payload auditJobCreate, workspacePath string) 
 	if err != nil {
 		return err
 	}
-	executor := s.executionExecutor()
+	executor := s.executionExecutorForPayload(payload)
 	output, err := executor.Execute(spec)
 	if err != nil {
 		return commandExecutionError{
@@ -840,7 +845,7 @@ func (s *Server) plannedJobCommand(payload auditJobCreate, workspacePath string)
 	if err != nil {
 		return nil, err
 	}
-	return s.executionExecutor().BuildCommand(spec)
+	return s.executionExecutorForPayload(payload).BuildCommand(spec)
 }
 
 func (s *Server) buildExecutionSpec(
@@ -851,7 +856,7 @@ func (s *Server) buildExecutionSpec(
 ) (serviceruntime.ExecutionSpec, error) {
 	return profiles.BuildSpec(profiles.JobRequest{
 		JobType:       payload.JobType,
-		RuntimeTarget: s.runtimeTarget(),
+		RuntimeTarget: s.runtimeTargetForPayload(payload),
 		ProjectRoot:   projectRoot,
 		RepoRoot:      repoRoot,
 		WorkspacePath: workspacePath,
@@ -866,12 +871,31 @@ func (s *Server) runtimeTarget() profiles.RuntimeTarget {
 	return profiles.RuntimeTargetLocal
 }
 
+func (s *Server) runtimeTargetForPayload(payload auditJobCreate) profiles.RuntimeTarget {
+	switch normalizeRuntimeProfile(payload.RuntimeProfile) {
+	case "docker", "docker-default":
+		return profiles.RuntimeTargetDocker
+	case "local", "local-default":
+		return profiles.RuntimeTargetLocal
+	default:
+		return s.runtimeTarget()
+	}
+}
+
 func (s *Server) executionExecutor() serviceruntime.Executor {
+	return s.executionExecutorForTarget(s.runtimeTarget())
+}
+
+func (s *Server) executionExecutorForPayload(payload auditJobCreate) serviceruntime.Executor {
+	return s.executionExecutorForTarget(s.runtimeTargetForPayload(payload))
+}
+
+func (s *Server) executionExecutorForTarget(target profiles.RuntimeTarget) serviceruntime.Executor {
 	execFn := s.config.ExecCommand
 	if execFn == nil {
 		execFn = defaultExecCommand
 	}
-	if s.runtimeTarget() == profiles.RuntimeTargetDocker {
+	if target == profiles.RuntimeTargetDocker {
 		return serviceruntime.DockerExecutor{
 			Binary:      strings.TrimSpace(s.config.DockerBinary),
 			ExecCommand: execFn,
@@ -912,6 +936,7 @@ func headlineMetrics(payload map[string]any) map[string]any {
 
 func normalizeCreatePayload(payload auditJobCreate) auditJobCreate {
 	inputs := cloneMap(payload.JobInputs)
+	payload.RuntimeProfile = normalizeRuntimeProfile(payload.RuntimeProfile)
 	if payload.ArtifactDir != "" {
 		if _, ok := inputs["artifact_dir"]; !ok {
 			inputs["artifact_dir"] = payload.ArtifactDir
@@ -922,6 +947,7 @@ func normalizeCreatePayload(payload auditJobCreate) auditJobCreate {
 			inputs["method"] = payload.Method
 		}
 	}
+	mergeInputSources(inputs, payload.Assets)
 	if len(inputs) == 0 {
 		payload.JobInputs = nil
 		return payload
@@ -931,19 +957,13 @@ func normalizeCreatePayload(payload auditJobCreate) auditJobCreate {
 }
 
 func jobInputString(payload auditJobCreate, key string) string {
-	if payload.JobInputs != nil {
-		if value, ok := payload.JobInputs[key].(string); ok {
-			return strings.TrimSpace(value)
+	inputs := normalizedJobInputs(payload)
+	if value, ok := inputs[key]; ok {
+		if str, ok := value.(string); ok {
+			return strings.TrimSpace(str)
 		}
 	}
-	switch key {
-	case "artifact_dir":
-		return strings.TrimSpace(payload.ArtifactDir)
-	case "method":
-		return strings.TrimSpace(payload.Method)
-	default:
-		return ""
-	}
+	return ""
 }
 
 func normalizedJobInputs(payload auditJobCreate) map[string]any {
@@ -958,7 +978,42 @@ func normalizedJobInputs(payload auditJobCreate) map[string]any {
 			inputs["method"] = payload.Method
 		}
 	}
+	mergeInputSources(inputs, payload.Assets)
 	return inputs
+}
+
+func mergeInputSources(inputs map[string]any, sources ...map[string]any) {
+	for _, source := range sources {
+		if len(source) == 0 {
+			continue
+		}
+		for key, value := range source {
+			switch key {
+			case "runtime", "orchestrator":
+				if nested, ok := value.(map[string]any); ok {
+					mergeInputSources(inputs, nested)
+				}
+				continue
+			}
+			if _, ok := inputs[key]; ok {
+				continue
+			}
+			inputs[key] = value
+		}
+	}
+}
+
+func normalizeRuntimeProfile(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func validateRuntimeProfile(value string) error {
+	switch normalizeRuntimeProfile(value) {
+	case "", "local", "local-default", "docker", "docker-default":
+		return nil
+	default:
+		return errors.New("runtime_profile must be one of local, local-default, docker, docker-default")
+	}
 }
 
 func cloneMap(value map[string]any) map[string]any {

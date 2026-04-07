@@ -929,6 +929,274 @@ func TestCreateJobAcceptsGsaRuntimeMainline(t *testing.T) {
 	}
 }
 
+func TestCreateJobAcceptsRuntimeProfileAndAssets(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":        "gsa_runtime_mainline",
+		"contract_key":    "white-box/gsa/ddpm-cifar10",
+		"workspace_name":  "api-gsa-docker-001",
+		"runtime_profile": "docker-default",
+		"repo_root":       "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+		"assets": map[string]any{
+			"assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+		},
+		"job_inputs": map[string]any{
+			"resolution":         "32",
+			"ddpm_num_steps":     "20",
+			"sampling_frequency": "2",
+			"attack_method":      "1",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	payload := decodeJSONResponse(t, recorder)
+	created, ok := payload["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %T", payload["payload"])
+	}
+	if created["runtime_profile"] != "docker-default" {
+		t.Fatalf("expected runtime_profile docker-default, got %v", created["runtime_profile"])
+	}
+	jobInputs, ok := created["job_inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected job_inputs object, got %T", created["job_inputs"])
+	}
+	if jobInputs["assets_root"] != "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa" {
+		t.Fatalf("expected assets_root in normalized job_inputs, got %v", jobInputs["assets_root"])
+	}
+}
+
+func TestCreateJobRejectsUnknownRuntimeProfile(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":        "pia_runtime_mainline",
+		"contract_key":    "gray-box/pia/cifar10-ddpm",
+		"workspace_name":  "api-pia-invalid-runtime-001",
+		"runtime_profile": "k8s-default",
+		"repo_root":       "D:/Code/DiffAudit/Project/external/PIA",
+		"job_inputs": map[string]any{
+			"config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateJobAcceptsRuntimeProfileForPiaRuntimeMainline(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":        "pia_runtime_mainline",
+		"contract_key":    "gray-box/pia/cifar10-ddpm",
+		"workspace_name":  "api-pia-runtime-profile-001",
+		"repo_root":       "D:/Code/DiffAudit/Project/external/PIA",
+		"runtime_profile": "local-default",
+		"assets": map[string]any{
+			"member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
+		},
+		"job_inputs": map[string]any{
+			"config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+			"device": "cpu",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	created := decodeJSONResponse(t, recorder)
+	payload, ok := created["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %T", created["payload"])
+	}
+	jobInputs, ok := payload["job_inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected job_inputs object, got %T", payload["job_inputs"])
+	}
+	if payload["runtime_profile"] != "local-default" {
+		t.Fatalf("expected runtime_profile preserved, got %v", payload["runtime_profile"])
+	}
+	if jobInputs["config"] != requestBody["job_inputs"].(map[string]any)["config"] {
+		t.Fatalf("expected config propagated, got %v", jobInputs["config"])
+	}
+	if jobInputs["member_split_root"] != requestBody["assets"].(map[string]any)["member_split_root"] {
+		t.Fatalf("expected member_split_root propagated, got %v", jobInputs["member_split_root"])
+	}
+}
+
+func TestCreateJobAcceptsAssetsFieldForGsaRuntimeMainline(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	requestBody := map[string]any{
+		"job_type":       "gsa_runtime_mainline",
+		"contract_key":   "white-box/gsa/ddpm-cifar10",
+		"workspace_name": "api-gsa-assets-001",
+		"repo_root":      "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+		"assets": map[string]any{
+			"assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+			"resolution":  "40",
+		},
+	}
+	data, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/audit/jobs", bytes.NewReader(data))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	created := decodeJSONResponse(t, recorder)
+	payload, ok := created["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %T", created["payload"])
+	}
+	jobInputs, ok := payload["job_inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected job_inputs object, got %T", payload["job_inputs"])
+	}
+	if jobInputs["assets_root"] != requestBody["assets"].(map[string]any)["assets_root"] {
+		t.Fatalf("expected assets_root propagated, got %v", jobInputs["assets_root"])
+	}
+	if jobInputs["resolution"] != requestBody["assets"].(map[string]any)["resolution"] {
+		t.Fatalf("expected resolution propagated, got %v", jobInputs["resolution"])
+	}
+}
+
+func TestPlannedJobCommandIncludesRuntimeProfileForPia(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ProjectRoot:     "D:/Code/DiffAudit/Project",
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	command, err := server.plannedJobCommand(
+		auditJobCreate{
+			JobType:        "pia_runtime_mainline",
+			ContractKey:    "gray-box/pia/cifar10-ddpm",
+			WorkspaceName:  "planned-pia-runtime-profile",
+			RepoRoot:       "D:/Code/DiffAudit/Project/external/PIA",
+			RuntimeProfile: "local-default",
+			Assets: map[string]any{
+				"member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
+			},
+			JobInputs: map[string]any{
+				"config":      "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+				"num_samples": "32",
+			},
+		},
+		filepath.Join(root, "experiments", "planned-pia-runtime-profile"),
+	)
+	if err != nil {
+		t.Fatalf("plannedJobCommand returned error: %v", err)
+	}
+	commandLine := strings.Join(command, "\n")
+	for _, want := range []string{
+		"--config\nD:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+		"--member-split-root\nD:/Code/DiffAudit/Project/external/PIA/DDPM",
+		"--max-samples\n32",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("expected pia command to contain %q, got %v", want, command)
+		}
+	}
+}
+
+func TestPlannedJobCommandIncludesAssetsForGsa(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ProjectRoot:     "D:/Code/DiffAudit/Project",
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	command, err := server.plannedJobCommand(
+		auditJobCreate{
+			JobType:        "gsa_runtime_mainline",
+			ContractKey:    "white-box/gsa/ddpm-cifar10",
+			WorkspaceName:  "planned-gsa-runtime-profile",
+			RepoRoot:       "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+			RuntimeProfile: "local-default",
+			Assets: map[string]any{
+				"assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+			},
+			JobInputs: map[string]any{
+				"resolution":    "64",
+				"attack_method": "3",
+			},
+		},
+		filepath.Join(root, "experiments", "planned-gsa-runtime-profile"),
+	)
+	if err != nil {
+		t.Fatalf("plannedJobCommand returned error: %v", err)
+	}
+	commandLine := strings.Join(command, "\n")
+	for _, want := range []string{
+		"--assets-root\nD:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+		"--resolution\n64",
+		"--attack-method\n3",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("expected gsa command to contain %q, got %v", want, command)
+		}
+	}
+}
 func TestPlannedJobCommandUsesDockerExecutorWhenConfigured(t *testing.T) {
 	root := t.TempDir()
 	server := NewServer(Config{
@@ -964,6 +1232,48 @@ func TestPlannedJobCommandUsesDockerExecutorWhenConfigured(t *testing.T) {
 	} {
 		if !strings.Contains(commandLine, want) {
 			t.Fatalf("expected docker command to contain %q, got %v", want, command)
+		}
+	}
+}
+
+func TestPlannedJobCommandUsesPayloadRuntimeProfile(t *testing.T) {
+	root := t.TempDir()
+	server := NewServer(Config{
+		ProjectRoot:     "D:/Code/DiffAudit/Project",
+		ExperimentsRoot: filepath.Join(root, "experiments"),
+		JobsRoot:        filepath.Join(root, "jobs"),
+		ExecutionMode:   "local",
+		DockerBinary:    "docker",
+	})
+
+	command, err := server.plannedJobCommand(
+		auditJobCreate{
+			JobType:        "gsa_runtime_mainline",
+			ContractKey:    "white-box/gsa/ddpm-cifar10",
+			WorkspaceName:  "docker-gsa-001",
+			RuntimeProfile: "docker-default",
+			RepoRoot:       "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+			Assets: map[string]any{
+				"assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+			},
+			JobInputs: map[string]any{
+				"resolution": "32",
+			},
+		},
+		"D:/Code/DiffAudit/Project/experiments/docker-gsa-001",
+	)
+	if err != nil {
+		t.Fatalf("plannedJobCommand returned error: %v", err)
+	}
+	commandLine := strings.Join(command, "\n")
+	for _, want := range []string{
+		"docker",
+		"diffaudit/gsa-runner:latest",
+		"run-gsa-runtime-mainline",
+		"/workspace/project/workspaces/white-box/assets/gsa",
+	} {
+		if !strings.Contains(commandLine, want) {
+			t.Fatalf("expected payload-selected docker command to contain %q, got %v", want, command)
 		}
 	}
 }

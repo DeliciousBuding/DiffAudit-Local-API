@@ -174,10 +174,13 @@ Example gray-box job:
   "job_type": "pia_runtime_mainline",
   "contract_key": "gray-box/pia/cifar10-ddpm",
   "workspace_name": "api-pia-runtime-mainline-001",
+  "runtime_profile": "docker-default",
   "repo_root": "D:/Code/DiffAudit/Project/external/PIA",
+  "assets": {
+    "member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM"
+  },
   "job_inputs": {
     "config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
-    "member_split_root": "D:/Code/DiffAudit/Project/external/PIA/DDPM",
     "device": "cpu",
     "num_samples": "16"
   }
@@ -191,9 +194,12 @@ Example white-box job:
   "job_type": "gsa_runtime_mainline",
   "contract_key": "white-box/gsa/ddpm-cifar10",
   "workspace_name": "api-gsa-runtime-mainline-001",
+  "runtime_profile": "docker-default",
   "repo_root": "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+  "assets": {
+    "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa"
+  },
   "job_inputs": {
-    "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
     "resolution": "32",
     "ddpm_num_steps": "20",
     "sampling_frequency": "2",
@@ -203,9 +209,32 @@ Example white-box job:
 ```
 
 The service rejects job bodies that omit `contract_key` or pair a `job_type`
-with the wrong contract. Contract-specific fields should go under `job_inputs`.
-Current recon callers may still send legacy top-level `artifact_dir` and
-`method`, and the service normalizes them into `job_inputs` internally.
+with the wrong contract. `runtime_profile` selects the execution target for a
+single job, `assets` carries reusable asset roots, and `job_inputs` carries
+method-specific parameters. When you supply `runtime_profile` or `assets`, the service merges those objects (including any nested `runtime` or `orchestrator` sections) into `job_inputs` before resolving a profile, so runtime-specific configuration can keep arriving without altering the execution path. Example payload:
+```json
+{
+  "job_type": "gsa_runtime_mainline",
+  "contract_key": "white-box/gsa/ddpm-cifar10",
+  "workspace_name": "api-gsa-runtime-profile-001",
+  "repo_root": "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
+  "runtime_profile": {
+    "config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
+    "runtime": {
+      "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+      "attack_method": "3"
+    }
+  },
+  "assets": {
+    "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
+    "resolution": "64"
+  }
+}
+```
+
+Current recon callers may still send legacy
+top-level `artifact_dir` and `method`, and the service normalizes them into
+`job_inputs` internally.
 
 Internally, `Local-API` now keeps:
 
@@ -213,15 +242,14 @@ Internally, `Local-API` now keeps:
 - method execution profiles
 - runtime executors
 
-The registry still separates:
+The registry currently exposes live contracts for:
 
-- live contracts that power the current public `catalog`, `models`, and job routes
-- target contracts that describe future gray-box / white-box admission without
-  pretending those lines are executable today
+- `black-box/recon/sd15-ddim`
+- `gray-box/pia/cifar10-ddpm`
+- `white-box/gsa/ddpm-cifar10`
 
-A target contract is not promoted to live just because code or smoke assets
-exist. The registry now carries explicit promotion gates for future lines, such
-as:
+Future lines are still admitted through explicit promotion gates rather than by
+code presence alone. Those gates currently cover items such as:
 
 - stable admitted `job_type` and runner support
 - line-owned promoted asset roots
