@@ -992,6 +992,14 @@ func (s *Server) buildExecutionSpec(
 	projectRoot string,
 	repoRoot string,
 ) (serviceruntime.ExecutionSpec, error) {
+	inputs := normalizedJobInputs(payload)
+	if err := s.registry.ResolveAssetRefsInInputs(inputs, assetResolveContext{
+		ProjectRoot: projectRoot,
+		ServiceRoot: strings.TrimSpace(s.config.ServiceRoot),
+		RepoRoot:    repoRoot,
+	}); err != nil {
+		return serviceruntime.ExecutionSpec{}, err
+	}
 	return profiles.BuildSpec(profiles.JobRequest{
 		JobType:       payload.JobType,
 		RuntimeTarget: s.runtimeTargetForPayload(payload),
@@ -1000,7 +1008,7 @@ func (s *Server) buildExecutionSpec(
 		ProjectRoot:   projectRoot,
 		RepoRoot:      repoRoot,
 		WorkspacePath: workspacePath,
-		Inputs:        normalizedJobInputs(payload),
+		Inputs:        inputs,
 	})
 }
 

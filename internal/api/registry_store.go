@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -51,10 +52,34 @@ CREATE TABLE IF NOT EXISTS jobs (
   requests_gpu INTEGER NOT NULL,
   PRIMARY KEY (contract_key, job_type)
 );
+
+CREATE TABLE IF NOT EXISTS assets (
+  asset_key TEXT PRIMARY KEY,
+  scope_root TEXT NOT NULL,
+  path TEXT NOT NULL,
+  description TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `
 
 type registryStore struct {
 	db *sql.DB
+}
+
+type assetRecord struct {
+	AssetKey    string
+	ScopeRoot   string
+	Path        string
+	Description string
+	CreatedAt   string
+	UpdatedAt   string
+}
+
+type assetResolveContext struct {
+	ProjectRoot string
+	ServiceRoot string
+	RepoRoot    string
 }
 
 var (
@@ -93,6 +118,137 @@ func openRegistryStore(path string) (*registryStore, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func (s *registryStore) UpsertAsset(assetKey string, scopeRoot string, assetPath string, description string) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	assetKey = strings.TrimSpace(assetKey)
+	scopeRoot = strings.TrimSpace(scopeRoot)
+	assetPath = strings.TrimSpace(assetPath)
+	description = strings.TrimSpace(description)
+	if assetKey == "" {
+		return fmt.Errorf("asset_key is required")
+	}
+	if scopeRoot == "" {
+		return fmt.Errorf("scope_root is required")
+	}
+	if assetPath == "" {
+		return fmt.Errorf("path is required")
+	}
+	switch scopeRoot {
+	case "absolute", "project_root", "service_root", "repo_root":
+	default:
+		return fmt.Errorf("unsupported scope_root %q", scopeRoot)
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO assets (asset_key, scope_root, path, description, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(asset_key) DO UPDATE SET
+		   scope_root=excluded.scope_root,
+		   path=excluded.path,
+		   description=excluded.description,
+		   updated_at=excluded.updated_at`,
+		assetKey,
+		scopeRoot,
+		assetPath,
+		description,
+		now,
+		now,
+	)
+	return err
+}
+
+func (s *registryStore) assetByKey(assetKey string) (assetRecord, bool, error) {
+	var asset assetRecord
+	err := s.db.QueryRow(
+		`SELECT asset_key, scope_root, path, description, created_at, updated_at
+		 FROM assets WHERE asset_key = ?`,
+		strings.TrimSpace(assetKey),
+	).Scan(&asset.AssetKey, &asset.ScopeRoot, &asset.Path, &asset.Description, &asset.CreatedAt, &asset.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return assetRecord{}, false, nil
+	}
+	if err != nil {
+		return assetRecord{}, false, err
+	}
+	return asset, true, nil
+}
+
+func resolveAssetRefValue(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "asset://") {
+		return "", false
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(value, "asset://"))
+	if key == "" {
+		return "", true
+	}
+	return key, true
+}
+
+func (s *registryStore) ResolveAssetRef(ref string, ctx assetResolveContext) (string, error) {
+	key, ok := resolveAssetRefValue(ref)
+	if !ok {
+		return strings.TrimSpace(ref), nil
+	}
+	if key == "" {
+		return "", fmt.Errorf("invalid asset ref %q", ref)
+	}
+	asset, found, err := s.assetByKey(key)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", fmt.Errorf("unknown asset %q", key)
+	}
+
+	switch asset.ScopeRoot {
+	case "absolute":
+		return filepath.Clean(filepath.FromSlash(asset.Path)), nil
+	case "project_root":
+		if strings.TrimSpace(ctx.ProjectRoot) == "" {
+			return "", fmt.Errorf("project_root is required to resolve asset %q", key)
+		}
+		return filepath.Clean(filepath.Join(ctx.ProjectRoot, filepath.FromSlash(asset.Path))), nil
+	case "service_root":
+		if strings.TrimSpace(ctx.ServiceRoot) == "" {
+			return "", fmt.Errorf("service_root is required to resolve asset %q", key)
+		}
+		return filepath.Clean(filepath.Join(ctx.ServiceRoot, filepath.FromSlash(asset.Path))), nil
+	case "repo_root":
+		if strings.TrimSpace(ctx.RepoRoot) == "" {
+			return "", fmt.Errorf("repo_root is required to resolve asset %q", key)
+		}
+		return filepath.Clean(filepath.Join(ctx.RepoRoot, filepath.FromSlash(asset.Path))), nil
+	default:
+		return "", fmt.Errorf("unsupported scope_root %q for asset %q", asset.ScopeRoot, key)
+	}
+}
+
+func (s *registryStore) ResolveAssetRefsInInputs(inputs map[string]any, ctx assetResolveContext) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	for key, value := range inputs {
+		str, ok := value.(string)
+		if !ok {
+			continue
+		}
+		assetKey, isRef := resolveAssetRefValue(str)
+		if !isRef {
+			continue
+		}
+		if assetKey == "" {
+			return fmt.Errorf("invalid asset ref for %s", key)
+		}
+		resolved, err := s.ResolveAssetRef(str, ctx)
+		if err != nil {
+			return err
+		}
+		inputs[key] = resolved
+	}
+	return nil
 }
 
 func (s *registryStore) seedIfEmpty() error {
