@@ -564,6 +564,76 @@ func TestCatalogEndpointHydratesBestReconEvidenceWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestCatalogEndpointHydratesIntakeMetadataWhenAvailable(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(filepath.Join(projectRoot, "workspaces", "intake"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(projectRoot, "workspaces", "intake", "index.json"),
+		[]byte(`{
+  "schema": "diffaudit.intake.index.v1",
+  "updated_at": "2026-04-07",
+  "entries": [
+    {
+      "id": "gray-box/pia/cifar10-ddpm",
+      "contract_key": "gray-box/pia/cifar10-ddpm",
+      "track": "gray-box",
+      "method": "pia",
+      "manifest": "workspaces/gray-box/assets/pia/manifest.json",
+      "admission": {
+        "status": "admitted",
+        "level": "system-intake-ready",
+        "evidence_level": "runtime-mainline",
+        "provenance_status": "source-retained-unverified"
+      },
+      "compatibility": {
+        "surface": "diffaudit-cli",
+        "commands": [
+          {
+            "name": "run-pia-runtime-mainline",
+            "required_manifest_fields": ["checkpoint_root"]
+          }
+        ]
+      }
+    }
+  ]
+}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("write intake index failed: %v", err)
+	}
+
+	server := NewServer(Config{
+		ProjectRoot: projectRoot,
+		JobsRoot:    filepath.Join(root, "jobs"),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/catalog", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	payload := decodeJSONArrayResponse(t, recorder)
+	entry := findCatalogEntry(t, payload, "pia", "cifar10-ddpm")
+	if entry["admission_status"] != "admitted" {
+		t.Fatalf("expected admission_status admitted, got %v", entry["admission_status"])
+	}
+	if entry["admission_level"] != "system-intake-ready" {
+		t.Fatalf("expected admission_level system-intake-ready, got %v", entry["admission_level"])
+	}
+	if entry["provenance_status"] != "source-retained-unverified" {
+		t.Fatalf("expected provenance_status source-retained-unverified, got %v", entry["provenance_status"])
+	}
+	if entry["intake_manifest"] != "workspaces/gray-box/assets/pia/manifest.json" {
+		t.Fatalf("expected intake_manifest path, got %v", entry["intake_manifest"])
+	}
+}
+
 func TestBestReconEndpoint(t *testing.T) {
 	root := t.TempDir()
 	experimentsRoot := filepath.Join(root, "experiments")

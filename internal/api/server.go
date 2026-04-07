@@ -70,23 +70,37 @@ type auditJobRecord struct {
 }
 
 type catalogEntry struct {
-	ContractKey     string  `json:"contract_key"`
-	Track           string  `json:"track"`
-	AttackFamily    string  `json:"attack_family"`
-	TargetKey       string  `json:"target_key"`
-	Availability    string  `json:"availability"`
-	EvidenceLevel   string  `json:"evidence_level"`
-	Label           string  `json:"label"`
-	Paper           string  `json:"paper"`
-	Backend         string  `json:"backend"`
-	Scheduler       *string `json:"scheduler"`
-	BestSummaryPath *string `json:"best_summary_path"`
-	BestWorkspace   *string `json:"best_workspace"`
+	ContractKey      string  `json:"contract_key"`
+	Track            string  `json:"track"`
+	AttackFamily     string  `json:"attack_family"`
+	TargetKey        string  `json:"target_key"`
+	Availability     string  `json:"availability"`
+	EvidenceLevel    string  `json:"evidence_level"`
+	Label            string  `json:"label"`
+	Paper            string  `json:"paper"`
+	Backend          string  `json:"backend"`
+	Scheduler        *string `json:"scheduler"`
+	BestSummaryPath  *string `json:"best_summary_path"`
+	BestWorkspace    *string `json:"best_workspace"`
+	AdmissionStatus  *string `json:"admission_status,omitempty"`
+	AdmissionLevel   *string `json:"admission_level,omitempty"`
+	ProvenanceStatus *string `json:"provenance_status,omitempty"`
+	IntakeManifest   *string `json:"intake_manifest,omitempty"`
 }
 
 type catalogEvidence struct {
 	summaryPath string
 	workspace   string
+}
+
+type intakeIndex struct {
+	Entries []intakeEntry `json:"entries"`
+}
+
+type intakeEntry struct {
+	ContractKey string         `json:"contract_key"`
+	Manifest    string         `json:"manifest"`
+	Admission   map[string]any `json:"admission"`
 }
 
 type configError struct {
@@ -313,9 +327,13 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 
 func (s *Server) catalogEntries() []catalogEntry {
 	definitions := catalogContractDefinitions()
+	intakeByContract := s.intakeEntriesByContract()
 	entries := make([]catalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
 		entry := projectCatalogEntry(definition)
+		if intake, ok := intakeByContract[definition.ContractKey]; ok {
+			applyIntakeMetadata(&entry, intake)
+		}
 
 		if evidence, ok := s.catalogEvidenceForContract(definition); ok {
 			entry.EvidenceLevel = "best-summary"
@@ -328,6 +346,51 @@ func (s *Server) catalogEntries() []catalogEntry {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func (s *Server) intakeEntriesByContract() map[string]intakeEntry {
+	projectRoot := strings.TrimSpace(s.config.ProjectRoot)
+	if projectRoot == "" {
+		return nil
+	}
+	indexPath := filepath.Join(projectRoot, "workspaces", "intake", "index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		return nil
+	}
+	var index intakeIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil
+	}
+	if len(index.Entries) == 0 {
+		return nil
+	}
+	result := make(map[string]intakeEntry, len(index.Entries))
+	for _, entry := range index.Entries {
+		if strings.TrimSpace(entry.ContractKey) == "" {
+			continue
+		}
+		result[entry.ContractKey] = entry
+	}
+	return result
+}
+
+func applyIntakeMetadata(entry *catalogEntry, intake intakeEntry) {
+	if entry == nil {
+		return
+	}
+	if manifest := strings.TrimSpace(intake.Manifest); manifest != "" {
+		entry.IntakeManifest = stringPtr(manifest)
+	}
+	if status, ok := intake.Admission["status"].(string); ok && strings.TrimSpace(status) != "" {
+		entry.AdmissionStatus = stringPtr(strings.TrimSpace(status))
+	}
+	if level, ok := intake.Admission["level"].(string); ok && strings.TrimSpace(level) != "" {
+		entry.AdmissionLevel = stringPtr(strings.TrimSpace(level))
+	}
+	if provenance, ok := intake.Admission["provenance_status"].(string); ok && strings.TrimSpace(provenance) != "" {
+		entry.ProvenanceStatus = stringPtr(strings.TrimSpace(provenance))
+	}
 }
 
 func (s *Server) catalogEvidenceForContract(definition contractDefinition) (catalogEvidence, bool) {

@@ -212,26 +212,15 @@ Example white-box job:
 The service rejects job bodies that omit `contract_key` or pair a `job_type`
 with the wrong contract. `runtime_profile` selects the execution target for a
 single job, `assets` carries reusable asset roots, and `job_inputs` carries
-method-specific parameters. When you supply `runtime_profile` or `assets`, the service merges those objects (including any nested `runtime` or `orchestrator` sections) into `job_inputs` before resolving a profile, so runtime-specific configuration can keep arriving without altering the execution path. Example payload:
-```json
-{
-  "job_type": "gsa_runtime_mainline",
-  "contract_key": "white-box/gsa/ddpm-cifar10",
-  "workspace_name": "api-gsa-runtime-profile-001",
-  "repo_root": "D:/Code/DiffAudit/Project/workspaces/white-box/external/GSA",
-  "runtime_profile": {
-    "config": "D:/Code/DiffAudit/Project/tmp/configs/pia-cifar10-graybox-assets.local.yaml",
-    "runtime": {
-      "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
-      "attack_method": "3"
-    }
-  },
-  "assets": {
-    "assets_root": "D:/Code/DiffAudit/Project/workspaces/white-box/assets/gsa",
-    "resolution": "64"
-  }
-}
-```
+method-specific parameters. The service normalizes `assets` into `job_inputs`
+before resolving the execution profile, while `runtime_profile` remains a
+string selector such as `local`, `local-default`, `docker`, or
+`docker-default`.
+
+When `project_root` points at a DiffAudit `Project` checkout, `GET /api/v1/catalog`
+also hydrates intake metadata from `Project/workspaces/intake/index.json`,
+including `admission_status`, `admission_level`, `provenance_status`, and
+`intake_manifest`.
 
 Current recon callers may still send legacy
 top-level `artifact_dir` and `method`, and the service normalizes them into
