@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /app
-COPY diffaudit_runner ./diffaudit_runner
+WORKDIR /runner
+COPY run.py /runner/run.py
 
-ENTRYPOINT ["python", "-m", "diffaudit_runner"]
+ENTRYPOINT ["python", "/runner/run.py"]
