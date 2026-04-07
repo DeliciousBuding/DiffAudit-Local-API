@@ -13,7 +13,7 @@ This repository contains the Local API service as a unified audit surface.
 It now combines:
 
 - an HTTP control plane
-- a contract registry
+- a database-backed contract registry
 - a profile-driven execution engine
 - a bundled runner codebase for black-box / gray-box / white-box execution
 
@@ -67,6 +67,7 @@ Execution mode:
 New launcher flags and env:
 
 - `-ServiceRoot` / `DIFFAUDIT_LOCAL_API_SERVICE_ROOT`
+- `-RegistryDBPath` / `DIFFAUDIT_LOCAL_API_REGISTRY_DB_PATH`
 - `-RunnersRoot` / `DIFFAUDIT_LOCAL_API_RUNNERS_ROOT`
 - `-ExecutionMode` / `DIFFAUDIT_LOCAL_API_EXECUTION_MODE`
 - `-DockerBinary` / `DIFFAUDIT_LOCAL_API_DOCKER_BINARY`
@@ -84,6 +85,7 @@ Current intent:
 
 - `Project` remains the research source of truth
 - `Local-API` dispatches bundled runner code from this repo
+- contract metadata is persisted in SQLite rather than compiled Go constants
 - assets, configs, and upstream repos are passed in as inputs rather than imported from `Project/src/diffaudit`
 
 This is the path used to decouple black-box / gray-box / white-box execution
@@ -192,6 +194,12 @@ Current live executable contracts:
 - `gray-box/pia/cifar10-ddpm`
 - `white-box/gsa/ddpm-cifar10`
 
+Registry source of truth:
+
+- runtime store: SQLite database at `registry_db_path`
+- default seed payload: `internal/api/registry_seed.json`
+- current runtime behavior: initialize or reuse the SQLite registry, then query it for `catalog`, `models`, and admitted jobs
+
 Example black-box job:
 
 ```json
@@ -290,6 +298,7 @@ Job observability note:
 - `local` mode executes the resolved command directly on the host
 - `docker` mode wraps the same execution spec in a `docker run` command
 - `GET /diagnostics` now reports `service_root`, `runners_root`, and per-runner script/dockerfile presence
+- `GET /diagnostics` now also reports `registry_db_path`
 - failure records still persist `command`, `output_capture`, and `output_tail`
 - the current default error path still treats combined output as the
   authoritative fallback stream
@@ -299,6 +308,7 @@ Job observability note:
 - `DIFFAUDIT_LOCAL_API_HOST`
 - `DIFFAUDIT_LOCAL_API_PORT`
 - `DIFFAUDIT_LOCAL_API_SERVICE_ROOT`
+- `DIFFAUDIT_LOCAL_API_REGISTRY_DB_PATH`
 - `DIFFAUDIT_LOCAL_API_RUNNERS_ROOT`
 - `DIFFAUDIT_LOCAL_API_PROJECT_ROOT`
 - `DIFFAUDIT_LOCAL_API_EXPERIMENTS_ROOT`

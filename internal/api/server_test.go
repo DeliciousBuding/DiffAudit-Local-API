@@ -59,10 +59,8 @@ func findCatalogEntry(t *testing.T, payload []map[string]any, attackFamily strin
 
 func findContractDefinition(t *testing.T, contractKey string) contractDefinition {
 	t.Helper()
-	for _, definition := range contractRegistry {
-		if definition.ContractKey == contractKey {
-			return definition
-		}
+	if definition, ok := contractDefinitionByKey(contractKey); ok {
+		return definition
 	}
 	t.Fatalf("missing contract definition %s", contractKey)
 	return contractDefinition{}
@@ -93,6 +91,7 @@ func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 	root := t.TempDir()
 	serviceRoot := filepath.Join(root, "service")
 	runnersRoot := filepath.Join(serviceRoot, "runners")
+	registryDBPath := filepath.Join(serviceRoot, "config", "registry.db")
 	experiments := filepath.Join(root, "experiments")
 	jobs := filepath.Join(root, "jobs")
 	project := filepath.Join(root, "project")
@@ -124,6 +123,7 @@ func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 	}
 	server := NewServer(Config{
 		ServiceRoot:      serviceRoot,
+		RegistryDBPath:   registryDBPath,
 		RunnersRoot:      runnersRoot,
 		ExperimentsRoot:  experiments,
 		JobsRoot:         jobs,
@@ -133,6 +133,11 @@ func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 		DockerBinary:     "docker",
 		GPUSchedulerPath: "/opt/gpu-scheduler",
 		GPURequestDoc:    "docs/gpu-request.md",
+	})
+	t.Cleanup(func() {
+		if server.registry != nil && server.registry.db != nil {
+			_ = server.registry.db.Close()
+		}
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/diagnostics", nil)
@@ -171,6 +176,7 @@ func TestDiagnosticsEndpointReportsPathsAndConfig(t *testing.T) {
 	checkPath("project_root", project)
 	checkPath("repo_root", repo)
 	checkPath("service_root", serviceRoot)
+	checkPath("registry_db_path", registryDBPath)
 	checkPath("runners_root", runnersRoot)
 
 	runners, ok := payload["runners"].(map[string]any)

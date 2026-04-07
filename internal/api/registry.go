@@ -18,36 +18,36 @@ type modelOption struct {
 }
 
 type jobDefinition struct {
-	JobType        string
-	Runner         string
-	RequiredInputs []string
-	RequestsGPU    bool
+	JobType        string   `json:"job_type"`
+	Runner         string   `json:"runner"`
+	RequiredInputs []string `json:"required_inputs"`
+	RequestsGPU    bool     `json:"requests_gpu"`
 }
 
 type contractDefinition struct {
-	ContractKey          string
-	Track                string
-	AttackFamily         string
-	TargetKey            string
-	Label                string
-	Paper                string
-	Backend              string
-	Scheduler            *string
-	Availability         string
-	DefaultEvidenceLevel string
-	ContractStatus       string
-	RegistryEvidence     string
-	FeatureAccess        string
-	CheckpointFormat     string
-	RequiredInputsNow    []string
-	OptionalInputsLater  []string
-	PromotedAssetRoots   []string
-	LivePromotionGates   []string
-	SystemGap            string
-	CatalogVisible       bool
-	Model                *modelOption
-	Jobs                 []jobDefinition
-	StatusMethodKey      string
+	ContractKey          string          `json:"contract_key"`
+	Track                string          `json:"track"`
+	AttackFamily         string          `json:"attack_family"`
+	TargetKey            string          `json:"target_key"`
+	Label                string          `json:"label"`
+	Paper                string          `json:"paper"`
+	Backend              string          `json:"backend"`
+	Scheduler            *string         `json:"scheduler"`
+	Availability         string          `json:"availability"`
+	DefaultEvidenceLevel string          `json:"default_evidence_level"`
+	ContractStatus       string          `json:"contract_status"`
+	RegistryEvidence     string          `json:"registry_evidence"`
+	FeatureAccess        string          `json:"feature_access"`
+	CheckpointFormat     string          `json:"checkpoint_format"`
+	RequiredInputsNow    []string        `json:"required_inputs_now"`
+	OptionalInputsLater  []string        `json:"optional_inputs_later"`
+	PromotedAssetRoots   []string        `json:"promoted_asset_roots"`
+	LivePromotionGates   []string        `json:"live_promotion_gates"`
+	SystemGap            string          `json:"system_gap"`
+	CatalogVisible       bool            `json:"catalog_visible"`
+	Model                *modelOption    `json:"model"`
+	Jobs                 []jobDefinition `json:"jobs"`
+	StatusMethodKey      string          `json:"status_method_key"`
 }
 
 type contractProjection struct {
@@ -283,47 +283,19 @@ var contractRegistry = []contractDefinition{
 }
 
 func liveModelOptions() []modelOption {
-	options := make([]modelOption, 0)
-	for _, definition := range contractRegistry {
-		if definition.Model == nil {
-			continue
-		}
-		options = append(options, projectModelOption(definition))
-	}
-	return options
+	return mustDefaultRegistryStore().LiveModelOptions()
 }
 
 func catalogContractDefinitions() []contractDefinition {
-	definitions := make([]contractDefinition, 0)
-	for _, definition := range contractRegistry {
-		if definition.CatalogVisible {
-			definitions = append(definitions, definition)
-		}
-	}
-	return definitions
+	return mustDefaultRegistryStore().CatalogContractDefinitions()
 }
 
 func liveJobDefinition(jobType string) (jobDefinition, contractDefinition, bool) {
-	for _, definition := range contractRegistry {
-		if definition.ContractStatus != "live" {
-			continue
-		}
-		for _, job := range definition.Jobs {
-			if job.JobType == jobType {
-				return job, definition, true
-			}
-		}
-	}
-	return jobDefinition{}, contractDefinition{}, false
+	return mustDefaultRegistryStore().LiveJobDefinition(jobType)
 }
 
 func contractDefinitionByKey(contractKey string) (contractDefinition, bool) {
-	for _, definition := range contractRegistry {
-		if definition.ContractKey == contractKey {
-			return definition, true
-		}
-	}
-	return contractDefinition{}, false
+	return mustDefaultRegistryStore().ContractByKey(contractKey)
 }
 
 func projectContract(definition contractDefinition) contractProjection {
@@ -374,35 +346,5 @@ func projectCatalogEntry(definition contractDefinition) catalogEntry {
 }
 
 func contractForSummaryPayload(payload map[string]any) (contractDefinition, bool) {
-	method, _ := payload["method"].(string)
-	if method == "" {
-		return contractDefinition{}, false
-	}
-
-	runtime, ok := payload["runtime"].(map[string]any)
-	if ok {
-		backend, _ := runtime["backend"].(string)
-		scheduler, _ := runtime["scheduler"].(string)
-		for _, definition := range contractRegistry {
-			if definition.AttackFamily != method || definition.Backend != backend {
-				continue
-			}
-			if definition.Scheduler != nil {
-				if scheduler == *definition.Scheduler {
-					return definition, true
-				}
-				continue
-			}
-			if scheduler == "" {
-				return definition, true
-			}
-		}
-	}
-
-	for _, definition := range contractRegistry {
-		if definition.AttackFamily == method {
-			return definition, true
-		}
-	}
-	return contractDefinition{}, false
+	return mustDefaultRegistryStore().ContractForSummaryPayload(payload)
 }

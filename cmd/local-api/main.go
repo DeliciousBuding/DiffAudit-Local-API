@@ -14,6 +14,7 @@ import (
 
 type runtimeConfig struct {
 	ServiceRoot      string
+	RegistryDBPath   string
 	Host             string
 	Port             string
 	RepoRoot         string
@@ -43,6 +44,11 @@ func parseConfig(args []string) (runtimeConfig, error) {
 	host := flagSet.String("host", envOrDefault("DIFFAUDIT_LOCAL_API_HOST", "127.0.0.1"), "listen host")
 	port := flagSet.String("port", envOrDefault("DIFFAUDIT_LOCAL_API_PORT", "8765"), "listen port")
 	serviceRoot := flagSet.String("service-root", envOrDefault("DIFFAUDIT_LOCAL_API_SERVICE_ROOT", defaultServiceRoot), "local-api service root")
+	registryDBPath := flagSet.String(
+		"registry-db-path",
+		envOrDefault("DIFFAUDIT_LOCAL_API_REGISTRY_DB_PATH", filepath.Join(defaultServiceRoot, "config", "registry.db")),
+		"sqlite registry database path",
+	)
 	runnersRoot := flagSet.String(
 		"runners-root",
 		envOrDefault("DIFFAUDIT_LOCAL_API_RUNNERS_ROOT", filepath.Join(defaultServiceRoot, "runners")),
@@ -99,6 +105,7 @@ func parseConfig(args []string) (runtimeConfig, error) {
 
 	return runtimeConfig{
 		ServiceRoot:      cleanPath(*serviceRoot),
+		RegistryDBPath:   cleanPath(*registryDBPath),
 		Host:             *host,
 		Port:             *port,
 		RepoRoot:         repoRootValue,
@@ -126,6 +133,7 @@ func startupLogLines(config runtimeConfig) []string {
 	return []string{
 		fmt.Sprintf("listen=%s:%s", config.Host, config.Port),
 		fmt.Sprintf("service_root=%s", config.ServiceRoot),
+		fmt.Sprintf("registry_db_path=%s", config.RegistryDBPath),
 		fmt.Sprintf("project_root=%s", config.ProjectRoot),
 		fmt.Sprintf("repo_root=%s", config.RepoRoot),
 		fmt.Sprintf("experiments_root=%s", config.ExperimentsRoot),
@@ -156,6 +164,7 @@ func main() {
 
 	server := api.NewServer(api.Config{
 		ServiceRoot:      config.ServiceRoot,
+		RegistryDBPath:   config.RegistryDBPath,
 		RunnersRoot:      config.RunnersRoot,
 		ExperimentsRoot:  config.ExperimentsRoot,
 		JobsRoot:         config.JobsRoot,

@@ -20,6 +20,7 @@ import (
 type Config struct {
 	ServiceRoot      string
 	RunnersRoot      string
+	RegistryDBPath   string
 	ExperimentsRoot  string
 	JobsRoot         string
 	ProjectRoot      string
@@ -36,8 +37,9 @@ type Config struct {
 }
 
 type Server struct {
-	config Config
-	mux    *http.ServeMux
+	config   Config
+	registry *registryStore
+	mux      *http.ServeMux
 }
 
 type auditJobCreate struct {
@@ -135,8 +137,9 @@ func NewServer(config Config) *Server {
 	}
 	mux := http.NewServeMux()
 	server := &Server{
-		config: config,
-		mux:    mux,
+		config:   config,
+		registry: openRegistryStoreOrDefault(strings.TrimSpace(config.RegistryDBPath)),
+		mux:      mux,
 	}
 	mux.HandleFunc("GET /health", server.handleHealth)
 	mux.HandleFunc("GET /diagnostics", server.handleDiagnostics)
@@ -205,6 +208,7 @@ func (s *Server) handleDiagnostics(writer http.ResponseWriter, _ *http.Request) 
 		"gpu_request_doc": strings.TrimSpace(s.config.GPURequestDoc),
 		"paths": map[string]any{
 			"service_root":     describePath(s.config.ServiceRoot),
+			"registry_db_path": describePath(s.config.RegistryDBPath),
 			"runners_root":     describePath(s.config.RunnersRoot),
 			"experiments_root": describePath(s.config.ExperimentsRoot),
 			"jobs_root":        describePath(s.config.JobsRoot),
@@ -216,7 +220,7 @@ func (s *Server) handleDiagnostics(writer http.ResponseWriter, _ *http.Request) 
 }
 
 func (s *Server) handleModels(writer http.ResponseWriter, _ *http.Request) {
-	writeJSON(writer, http.StatusOK, liveModelOptions())
+	writeJSON(writer, http.StatusOK, s.registry.LiveModelOptions())
 }
 
 func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
@@ -224,7 +228,7 @@ func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {
-	definition, ok := contractDefinitionByKey("black-box/recon/sd15-ddim")
+	definition, ok := s.registry.ContractByKey("black-box/recon/sd15-ddim")
 	if !ok {
 		writeError(writer, http.StatusNotFound, "missing live recon contract")
 		return
@@ -331,7 +335,7 @@ func (s *Server) handleSummaryPath(writer http.ResponseWriter, summaryPath strin
 }
 
 func (s *Server) catalogEntries() []catalogEntry {
-	definitions := catalogContractDefinitions()
+	definitions := s.registry.CatalogContractDefinitions()
 	intakeByContract := s.intakeEntriesByContract()
 	entries := make([]catalogEntry, 0, len(definitions))
 	for _, definition := range definitions {
@@ -555,7 +559,7 @@ func summaryEnvelope(summaryPath string, payload map[string]any) map[string]any 
 		scheduler = runtime["scheduler"]
 	}
 	track, _ := payload["track"].(string)
-	if definition, ok := contractForSummaryPayload(payload); ok {
+	if definition, ok := mustDefaultRegistryStore().ContractForSummaryPayload(payload); ok {
 		projection := projectContract(definition)
 		contractKey = projection.ContractKey
 		attackFamily = projection.AttackFamily
@@ -611,7 +615,7 @@ func validateCreatePayload(payload auditJobCreate) error {
 	if err := validateRuntimeProfile(payload.RuntimeProfile); err != nil {
 		return err
 	}
-	job, definition, ok := liveJobDefinition(payload.JobType)
+	job, definition, ok := mustDefaultRegistryStore().LiveJobDefinition(payload.JobType)
 	if !ok {
 		return errors.New("unsupported job_type")
 	}
@@ -895,7 +899,7 @@ func defaultExecCommand(command []string, dir string) ([]byte, error) {
 }
 
 func shouldRequestGPU(payload auditJobCreate) bool {
-	job, _, ok := liveJobDefinition(payload.JobType)
+	job, _, ok := mustDefaultRegistryStore().LiveJobDefinition(payload.JobType)
 	if !ok {
 		return true
 	}
