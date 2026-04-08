@@ -21,7 +21,7 @@
       "runtime and artifact intake remain admitted in public api",
       "blackbox-status best evidence path resolves to a matching recon summary"
     ],
-    "system_gap": "public Local-API contract still models artifact replay more fully than runtime intake",
+    "system_gap": "runtime contract is live; remaining gap is to surface semantic limits and secondary-track boundaries cleanly in platform copy",
     "catalog_visible": true,
     "status_method_key": "recon",
     "model": {
@@ -131,7 +131,7 @@
       "summary hydration rule is proven against real non-smoke evidence",
       "asset grade and provenance status are approved for live catalog exposure"
     ],
-    "system_gap": "result hydration and platform contract still need to ingest gray-box live summaries",
+    "system_gap": "gray-box attack and provisional defense are admitted; remaining gap is to expose cost columns and defense wording consistently across system views",
     "catalog_visible": true,
     "status_method_key": "pia",
     "model": {
@@ -172,7 +172,7 @@
       "non-smoke member/non-member inputs are available",
       "summary hydration rule is proven against non-toy evidence"
     ],
-    "system_gap": "white-box runtime is live but current metrics are still tiny-sample local evidence",
+    "system_gap": "white-box attack mainline is admitted; remaining gap is to expose defended W-1 comparison beside GSA without overstating benchmark completeness",
     "catalog_visible": true,
     "status_method_key": "gsa",
     "model": {

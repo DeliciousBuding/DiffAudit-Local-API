@@ -519,6 +519,9 @@ func TestCatalogEndpointReturnsStaticReconEntriesWithoutEvidence(t *testing.T) {
 	if entry["label"] != "Stable Diffusion 1.5 + DDIM" {
 		t.Fatalf("expected label from shared contract projection, got %v", entry["label"])
 	}
+	if entry["system_gap"] == nil {
+		t.Fatalf("expected system_gap to be exposed in catalog entry, got %v", entry["system_gap"])
+	}
 }
 
 func TestContractProjectionKeepsModelsAndCatalogAligned(t *testing.T) {
@@ -677,6 +680,9 @@ func TestCatalogEndpointHydratesIntakeMetadataWhenAvailable(t *testing.T) {
 	}
 	if entry["intake_manifest"] != "workspaces/gray-box/assets/pia/manifest.json" {
 		t.Fatalf("expected intake_manifest path, got %v", entry["intake_manifest"])
+	}
+	if entry["system_gap"] == nil {
+		t.Fatalf("expected system_gap to remain present after intake hydration, got %v", entry["system_gap"])
 	}
 }
 

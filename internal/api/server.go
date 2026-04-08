@@ -84,6 +84,7 @@ type catalogEntry struct {
 	Paper            string  `json:"paper"`
 	Backend          string  `json:"backend"`
 	Scheduler        *string `json:"scheduler"`
+	SystemGap        *string `json:"system_gap,omitempty"`
 	BestSummaryPath  *string `json:"best_summary_path"`
 	BestWorkspace    *string `json:"best_workspace"`
 	AdmissionStatus  *string `json:"admission_status,omitempty"`

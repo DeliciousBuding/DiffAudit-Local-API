@@ -19,3 +19,4 @@ coverage.out
 config/*.env
 !config/*.example.env
 logs/
+config/*.db

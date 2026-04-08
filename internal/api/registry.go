@@ -91,7 +91,7 @@ var contractRegistry = []contractDefinition{
 			"runtime and artifact intake remain admitted in public api",
 			"blackbox-status best evidence path resolves to a matching recon summary",
 		},
-		SystemGap:       "public Local-API contract still models artifact replay more fully than runtime intake",
+		SystemGap:       "runtime contract is live; remaining gap is to surface semantic limits and secondary-track boundaries cleanly in platform copy",
 		CatalogVisible:  true,
 		StatusMethodKey: "recon",
 		Model: &modelOption{
@@ -204,7 +204,7 @@ var contractRegistry = []contractDefinition{
 			"summary hydration rule is proven against real non-smoke evidence",
 			"asset grade and provenance status are approved for live catalog exposure",
 		},
-		SystemGap:       "result hydration and platform contract still need to ingest gray-box live summaries",
+		SystemGap:       "gray-box attack and provisional defense are admitted; remaining gap is to expose cost columns and defense wording consistently across system views",
 		CatalogVisible:  true,
 		StatusMethodKey: "pia",
 		Model: &modelOption{
@@ -259,7 +259,7 @@ var contractRegistry = []contractDefinition{
 			"non-smoke member/non-member inputs are available",
 			"summary hydration rule is proven against non-toy evidence",
 		},
-		SystemGap:       "white-box runtime is live but current metrics are still tiny-sample local evidence",
+		SystemGap:       "white-box attack mainline is admitted; remaining gap is to expose defended W-1 comparison beside GSA without overstating benchmark completeness",
 		CatalogVisible:  true,
 		StatusMethodKey: "gsa",
 		Model: &modelOption{
@@ -329,6 +329,10 @@ func projectModelOption(definition contractDefinition) modelOption {
 
 func projectCatalogEntry(definition contractDefinition) catalogEntry {
 	projection := projectContract(definition)
+	var systemGap *string
+	if definition.SystemGap != "" {
+		systemGap = stringPtr(definition.SystemGap)
+	}
 	return catalogEntry{
 		ContractKey:     projection.ContractKey,
 		Track:           projection.Track,
@@ -340,6 +344,7 @@ func projectCatalogEntry(definition contractDefinition) catalogEntry {
 		Paper:           projection.Paper,
 		Backend:         projection.Backend,
 		Scheduler:       projection.Scheduler,
+		SystemGap:       systemGap,
 		BestSummaryPath: nil,
 		BestWorkspace:   nil,
 	}

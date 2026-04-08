@@ -278,7 +278,9 @@ string selector such as `local`, `local-default`, `docker`, or
 When `project_root` points at a DiffAudit `Project` checkout, `GET /api/v1/catalog`
 also hydrates intake metadata from `Project/workspaces/intake/index.json`,
 including `admission_status`, `admission_level`, `provenance_status`, and
-`intake_manifest`. Current admitted intake covers:
+`intake_manifest`. The same catalog payload also carries `system_gap`, so
+callers can render what still blocks each live contract without scraping plan
+docs. Current admitted intake covers:
 
 - `gray-box/pia/cifar10-ddpm`
   - current `provenance_status` is expected to hydrate as `workspace-verified`
