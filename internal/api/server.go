@@ -146,6 +146,7 @@ func NewServer(config Config) *Server {
 	mux.HandleFunc("GET /api/v1/catalog", server.handleCatalog)
 	mux.HandleFunc("GET /api/v1/models", server.handleModels)
 	mux.HandleFunc("GET /api/v1/evidence/attack-defense-table", server.handleUnifiedAttackDefenseTable)
+	mux.HandleFunc("GET /api/v1/evidence/contracts/best", server.handleBestContractSummary)
 	mux.HandleFunc("GET /api/v1/experiments/recon/best", server.handleBestRecon)
 	mux.HandleFunc("GET /api/v1/experiments/{workspace}/summary", server.handleWorkspaceSummary)
 	mux.HandleFunc("GET /api/v1/audit/jobs", server.handleListJobs)
@@ -244,9 +245,22 @@ func (s *Server) handleUnifiedAttackDefenseTable(writer http.ResponseWriter, _ *
 }
 
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {
-	definition, ok := s.registry.ContractByKey("black-box/recon/sd15-ddim")
+	s.handleBestSummaryForContractKey(writer, "black-box/recon/sd15-ddim")
+}
+
+func (s *Server) handleBestContractSummary(writer http.ResponseWriter, request *http.Request) {
+	contractKey := strings.TrimSpace(request.URL.Query().Get("contract_key"))
+	if contractKey == "" {
+		writeError(writer, http.StatusBadRequest, "contract_key is required")
+		return
+	}
+	s.handleBestSummaryForContractKey(writer, contractKey)
+}
+
+func (s *Server) handleBestSummaryForContractKey(writer http.ResponseWriter, contractKey string) {
+	definition, ok := s.registry.ContractByKey(contractKey)
 	if !ok {
-		writeError(writer, http.StatusNotFound, "missing live recon contract")
+		writeError(writer, http.StatusNotFound, "missing live contract")
 		return
 	}
 	summaryPath, err := s.bestSummaryPathForContract(definition)

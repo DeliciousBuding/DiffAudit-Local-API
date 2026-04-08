@@ -717,6 +717,68 @@ func TestUnifiedAttackDefenseTableEndpoint(t *testing.T) {
 	}
 }
 
+func TestBestContractSummaryEndpointRequiresContractKey(t *testing.T) {
+	server := NewServer(Config{})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/evidence/contracts/best", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestBestContractSummaryEndpointReturnsGrayBoxSummary(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "project")
+	experimentsRoot := filepath.Join(root, "experiments")
+	workspace := filepath.Join(projectRoot, "workspaces", "gray-box", "runs", "pia-runtime-mainline-001")
+
+	writeJSONFile(t, filepath.Join(workspace, "summary.json"), map[string]any{
+		"status":    "ready",
+		"track":     "gray-box",
+		"paper":     "PIA",
+		"method":    "pia",
+		"mode":      "runtime-mainline",
+		"workspace": workspace,
+		"metrics": map[string]any{
+			"auc": 0.841339,
+		},
+		"artifacts": map[string]any{
+			"target_member":     map[string]any{"sample_count": 512.0},
+			"target_non_member": map[string]any{"sample_count": 512.0},
+		},
+		"artifact_paths": map[string]any{
+			"summary": filepath.Join(workspace, "summary.json"),
+		},
+	})
+
+	server := NewServer(Config{
+		ProjectRoot:     projectRoot,
+		ExperimentsRoot: experimentsRoot,
+		JobsRoot:        filepath.Join(root, "jobs"),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/evidence/contracts/best?contract_key=gray-box/pia/cifar10-ddpm", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	payload := decodeJSONResponse(t, recorder)
+	if payload["contract_key"] != "gray-box/pia/cifar10-ddpm" {
+		t.Fatalf("expected gray-box contract_key, got %v", payload["contract_key"])
+	}
+	if payload["attack_family"] != "pia" {
+		t.Fatalf("expected pia attack_family, got %v", payload["attack_family"])
+	}
+	if payload["summary_path"] != filepath.Join(workspace, "summary.json") {
+		t.Fatalf("expected summary_path to point at gray-box summary, got %v", payload["summary_path"])
+	}
+}
+
 func TestBestReconEndpoint(t *testing.T) {
 	root := t.TempDir()
 	experimentsRoot := filepath.Join(root, "experiments")

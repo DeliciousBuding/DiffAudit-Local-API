@@ -175,6 +175,8 @@ Current discovery and control routes:
 - `GET /health`
 - `GET /diagnostics`
 - `GET /api/v1/catalog`
+- `GET /api/v1/evidence/attack-defense-table`
+- `GET /api/v1/evidence/contracts/best?contract_key=...`
 - `GET /api/v1/experiments/recon/best`
 - `GET /api/v1/experiments/{workspace}/summary`
 - `GET /api/v1/audit/jobs`
@@ -193,6 +195,16 @@ Current live executable contracts:
 - `black-box/recon/sd15-ddim`
 - `gray-box/pia/cifar10-ddpm`
 - `white-box/gsa/ddpm-cifar10`
+
+Admitted evidence read path:
+
+- `GET /api/v1/evidence/attack-defense-table`
+  - returns the unified admitted black-box / gray-box / white-box table from
+    `Project/workspaces/implementation/artifacts/unified-attack-defense-table.json`
+- `GET /api/v1/evidence/contracts/best?contract_key=gray-box/pia/cifar10-ddpm`
+  - returns the best admitted summary envelope for the requested live contract
+- `GET /api/v1/experiments/recon/best`
+  - legacy convenience alias for `black-box/recon/sd15-ddim`
 
 Registry source of truth:
 
@@ -266,7 +278,12 @@ string selector such as `local`, `local-default`, `docker`, or
 When `project_root` points at a DiffAudit `Project` checkout, `GET /api/v1/catalog`
 also hydrates intake metadata from `Project/workspaces/intake/index.json`,
 including `admission_status`, `admission_level`, `provenance_status`, and
-`intake_manifest`.
+`intake_manifest`. Current admitted intake covers:
+
+- `gray-box/pia/cifar10-ddpm`
+  - current `provenance_status` is expected to hydrate as `workspace-verified`
+- `white-box/gsa/ddpm-cifar10`
+  - current `provenance_status` is expected to hydrate as `workspace-verified`
 
 Current recon callers may still send legacy
 top-level `artifact_dir` and `method`, and the service normalizes them into
