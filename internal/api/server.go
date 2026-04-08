@@ -145,6 +145,7 @@ func NewServer(config Config) *Server {
 	mux.HandleFunc("GET /diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("GET /api/v1/catalog", server.handleCatalog)
 	mux.HandleFunc("GET /api/v1/models", server.handleModels)
+	mux.HandleFunc("GET /api/v1/evidence/attack-defense-table", server.handleUnifiedAttackDefenseTable)
 	mux.HandleFunc("GET /api/v1/experiments/recon/best", server.handleBestRecon)
 	mux.HandleFunc("GET /api/v1/experiments/{workspace}/summary", server.handleWorkspaceSummary)
 	mux.HandleFunc("GET /api/v1/audit/jobs", server.handleListJobs)
@@ -225,6 +226,21 @@ func (s *Server) handleModels(writer http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleCatalog(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, s.catalogEntries())
+}
+
+func (s *Server) handleUnifiedAttackDefenseTable(writer http.ResponseWriter, _ *http.Request) {
+	projectRoot, err := requireConfigPath("project_root", s.config.ProjectRoot, "read the unified attack-defense table")
+	if err != nil {
+		writeError(writer, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	tablePath := filepath.Join(projectRoot, "workspaces", "implementation", "artifacts", "unified-attack-defense-table.json")
+	payload, err := readJSONFile(tablePath)
+	if err != nil {
+		writeError(writer, statusCodeForError(err, http.StatusNotFound), err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, payload)
 }
 
 func (s *Server) handleBestRecon(writer http.ResponseWriter, _ *http.Request) {

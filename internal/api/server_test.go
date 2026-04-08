@@ -632,7 +632,7 @@ func TestCatalogEndpointHydratesIntakeMetadataWhenAvailable(t *testing.T) {
         "status": "admitted",
         "level": "system-intake-ready",
         "evidence_level": "runtime-mainline",
-        "provenance_status": "source-retained-unverified"
+        "provenance_status": "workspace-verified"
       },
       "compatibility": {
         "surface": "diffaudit-cli",
@@ -672,11 +672,48 @@ func TestCatalogEndpointHydratesIntakeMetadataWhenAvailable(t *testing.T) {
 	if entry["admission_level"] != "system-intake-ready" {
 		t.Fatalf("expected admission_level system-intake-ready, got %v", entry["admission_level"])
 	}
-	if entry["provenance_status"] != "source-retained-unverified" {
-		t.Fatalf("expected provenance_status source-retained-unverified, got %v", entry["provenance_status"])
+	if entry["provenance_status"] != "workspace-verified" {
+		t.Fatalf("expected provenance_status workspace-verified, got %v", entry["provenance_status"])
 	}
 	if entry["intake_manifest"] != "workspaces/gray-box/assets/pia/manifest.json" {
 		t.Fatalf("expected intake_manifest path, got %v", entry["intake_manifest"])
+	}
+}
+
+func TestUnifiedAttackDefenseTableEndpoint(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "project")
+	tablePath := filepath.Join(projectRoot, "workspaces", "implementation", "artifacts", "unified-attack-defense-table.json")
+	writeJSONFile(t, tablePath, map[string]any{
+		"schema": "diffaudit.attack_defense_table.v1",
+		"rows": []map[string]any{
+			{
+				"track":   "gray-box",
+				"attack":  "PIA GPU512 baseline",
+				"defense": "G-1 stochastic-dropout",
+			},
+		},
+	})
+
+	server := NewServer(Config{
+		ProjectRoot: projectRoot,
+		JobsRoot:    filepath.Join(root, "jobs"),
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/evidence/attack-defense-table", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	payload := decodeJSONResponse(t, recorder)
+	if payload["schema"] != "diffaudit.attack_defense_table.v1" {
+		t.Fatalf("expected unified table schema, got %v", payload["schema"])
+	}
+	rows, ok := payload["rows"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("expected one row, got %v", payload["rows"])
 	}
 }
 
